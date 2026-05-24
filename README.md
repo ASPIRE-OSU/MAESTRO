@@ -71,21 +71,23 @@ All results use a 30-second decision window and are averaged across five stratif
 
 ```
 maestro-benchmark/
-├── dataloader.py               # Preprocessing, sync, windowing, PyTorch Dataset
-├── model_classification.py     # Multi-encoder dilated conv network (T1)
-├── model_spatial.py            # Binary variant for T2 and T3
-├── model_reconstruction.py     # Linear backward model + Pearson loss (T4)
-├── train_pooled.py             # T1 — pooled 5-fold CV (all modes)
-├── train_loso.py               # T1 — leave-one-subject-out
-├── train_hemisphere.py         # T2 — hemisphere decoding
-├── train_eccentricity.py       # T3 — eccentricity decoding
-├── train_reconstruction.py     # T4 — envelope reconstruction
-├── dl_maestro.py               # Dataset download script with rate limit handling
-├── results_T1_pooled/          # Pre-computed T1 pooled results
-├── results_T1_loso/            # Pre-computed T1 LOSO results
-├── results_T2/                 # Pre-computed T2 results
-├── results_T3/                 # Pre-computed T3 results
-└── results_T4/                 # Pre-computed T4 results
+├── scripts/
+│   ├── dataloader.py               # Preprocessing, sync, windowing, PyTorch Dataset
+│   ├── model_classification.py     # Multi-encoder dilated conv network (T1)
+│   ├── model_spatial.py            # Binary variant for T2 and T3
+│   ├── model_reconstruction.py     # Linear backward model + Pearson loss (T4)
+│   ├── train_pooled.py             # T1 — pooled 5-fold CV (all modes)
+│   ├── train_loso.py               # T1 — leave-one-subject-out
+│   ├── train_hemisphere.py         # T2 — hemisphere decoding
+│   ├── train_eccentricity.py       # T3 — eccentricity decoding
+│   ├── train_reconstruction.py     # T4 — envelope reconstruction
+│   └── dl_maestro.py               # Dataset download script with rate limit handling
+└── results/
+    ├── T1_pooled/                  # Pre-computed T1 pooled results
+    ├── T1_loso/                    # Pre-computed T1 LOSO results
+    ├── T2/                         # Pre-computed T2 results
+    ├── T3/                         # Pre-computed T3 results
+    └── T4/                         # Pre-computed T4 results
 ```
 
 ---
@@ -103,13 +105,13 @@ pip install torch numpy scipy pandas pyarrow soundfile scikit-learn opencv-pytho
 The dataset is publicly available on HuggingFace. Use the provided download script which handles rate limiting automatically by downloading one subject at a time with retries:
 
 ```bash
-python dl_maestro.py --local_dir /data/maestro
+python scripts/dl_maestro.py --local_dir /data/maestro
 ```
 
 To download specific subjects only:
 
 ```bash
-python dl_maestro.py --local_dir /data/maestro --subjects 1 2 3
+python scripts/dl_maestro.py --local_dir /data/maestro --subjects 1 2 3
 ```
 
 The script downloads in three sequential phases — metadata, modality data (EEG, gaze, IMU), and media (audio, video, timing) — with a short pause between each batch to stay within HuggingFace's free-tier rate limits.
@@ -147,39 +149,39 @@ All scripts take `--local_path` as the dataset root. An optional `--cache_dir` c
 
 ```bash
 # EEG only
-python train_pooled.py --local_path /data/maestro --mode eeg
+python scripts/train_pooled.py --local_path /data/maestro --mode eeg
 
 # Full multimodal
-python train_pooled.py --local_path /data/maestro --mode eeg_vgi \
+python scripts/train_pooled.py --local_path /data/maestro --mode eeg_vgi \
                        --cache_dir /cache
 ```
 
 ### T1 — Leave-one-subject-out
 
 ```bash
-python train_loso.py --local_path /data/maestro --mode eeg
-python train_loso.py --local_path /data/maestro --mode eeg_vgi --cache_dir /cache
+python scripts/train_loso.py --local_path /data/maestro --mode eeg
+python scripts/train_loso.py --local_path /data/maestro --mode eeg_vgi --cache_dir /cache
 ```
 
 ### T2 — Attended hemisphere decoding
 
 ```bash
-python train_hemisphere.py --local_path /data/maestro --mode eeg
-python train_hemisphere.py --local_path /data/maestro --mode eeg_vgi --cache_dir /cache
+python scripts/train_hemisphere.py --local_path /data/maestro --mode eeg
+python scripts/train_hemisphere.py --local_path /data/maestro --mode eeg_vgi --cache_dir /cache
 ```
 
 ### T3 — Attended eccentricity decoding
 
 ```bash
-python train_eccentricity.py --local_path /data/maestro --mode eeg
-python train_eccentricity.py --local_path /data/maestro --mode eeg_vgi --cache_dir /cache
+python scripts/train_eccentricity.py --local_path /data/maestro --mode eeg
+python scripts/train_eccentricity.py --local_path /data/maestro --mode eeg_vgi --cache_dir /cache
 ```
 
 ### T4 — Envelope reconstruction
 
 ```bash
-python train_reconstruction.py --local_path /data/maestro --mode eeg
-python train_reconstruction.py --local_path /data/maestro --mode eeg_vgi --cache_dir /cache
+python scripts/train_reconstruction.py --local_path /data/maestro --mode eeg
+python scripts/train_reconstruction.py --local_path /data/maestro --mode eeg_vgi --cache_dir /cache
 ```
 
 ### Supported modes
