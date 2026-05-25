@@ -160,7 +160,7 @@ python scripts/train_pooled.py --local_path maestro-data --mode eeg_vgi \
                        --cache_dir /cache
 ```
 
-### T1 — Leave-one-subject-out
+### T1 — Leave-one-subject-out (LOSO)
 
 ```bash
 python scripts/train_loso.py --local_path maestro-data --mode eeg
