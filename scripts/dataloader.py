@@ -194,13 +194,28 @@ def preprocess_gaze(gaze_raw: np.ndarray,
                     t_sec: np.ndarray,
                     t_start: float,
                     t_end: float) -> np.ndarray:
-    """Interpolate gaze to 64 Hz grid, LP 10 Hz, z-score. Returns (T, C)."""
+    """Interpolate gaze to 64 Hz grid, LP 10 Hz, z-score. Returns (T, C).
+    NaN values are handled per channel by dropping invalid samples before
+    interpolation, matching the original gazedata.gz behavior."""
     mask = (t_sec >= t_start - 0.1) & (t_sec <= t_end + 0.1)
     ts, vals = t_sec[mask], gaze_raw[mask]
     n_out = int((t_end - t_start) * TARGET_FS)
+    C = vals.shape[1] if len(vals) > 0 else gaze_raw.shape[1]
     if len(ts) < 4:
-        return np.zeros((n_out, gaze_raw.shape[1]), dtype=np.float32)
-    out = _interp_grid(ts, vals, t_start, t_end, TARGET_FS)
+        return np.zeros((n_out, C), dtype=np.float32)
+
+    # Interpolate each channel independently, skipping NaN samples
+    grid = np.arange(t_start, t_end, 1.0 / TARGET_FS)
+    out  = np.zeros((len(grid), C), dtype=np.float32)
+    for c in range(C):
+        valid = ~np.isnan(vals[:, c])
+        if valid.sum() < 4:
+            continue   # leave as zero if too few valid samples
+        f = interp1d(ts[valid], vals[valid, c], kind="linear",
+                     bounds_error=False,
+                     fill_value=(vals[valid, c][0], vals[valid, c][-1]))
+        out[:, c] = f(grid).astype(np.float32)
+
     sos = _butter_lp(10.0, TARGET_FS)
     out = sosfiltfilt(sos, out, axis=0).astype(np.float32)
     return _zscore(out)
@@ -212,27 +227,52 @@ def preprocess_imu(imu_raw: np.ndarray,
                    t_sec: np.ndarray,
                    t_start: float,
                    t_end: float) -> np.ndarray:
-    """Interpolate IMU, resample to 64 Hz, LP 20 Hz, z-score. Returns (T, C)."""
+    """Interpolate IMU, resample to 64 Hz, LP 20 Hz, z-score. Returns (T, C).
+    NaN values are handled per channel by dropping invalid samples before
+    interpolation."""
     mask = (t_sec >= t_start - 0.1) & (t_sec <= t_end + 0.1)
     ts, vals = t_sec[mask], imu_raw[mask]
     n_out = int((t_end - t_start) * TARGET_FS)
+    C = vals.shape[1] if len(vals) > 0 else imu_raw.shape[1]
     if len(ts) < 4:
-        return np.zeros((n_out, imu_raw.shape[1]), dtype=np.float32)
-    fs_imu = 1.0 / np.median(np.diff(ts)) if len(ts) > 1 else 130.0
-    out    = _interp_grid(ts, vals, t_start, t_end, int(round(fs_imu)))
-    out    = _resample(out, fs_imu, TARGET_FS)
-    sos    = _butter_lp(20.0, TARGET_FS)
-    out    = sosfiltfilt(sos, out, axis=0).astype(np.float32)
+        return np.zeros((n_out, C), dtype=np.float32)
+
+    fs_imu  = 1.0 / np.median(np.diff(ts)) if len(ts) > 1 else 130.0
+    n_imu   = int((t_end - t_start) * fs_imu)
+
+    # Interpolate each channel independently, skipping NaN samples
+    grid_imu = np.arange(t_start, t_end, 1.0 / fs_imu)
+    out_imu  = np.zeros((len(grid_imu), C), dtype=np.float32)
+    for c in range(C):
+        valid = ~np.isnan(vals[:, c])
+        if valid.sum() < 4:
+            continue
+        f = interp1d(ts[valid], vals[valid, c], kind="linear",
+                     bounds_error=False,
+                     fill_value=(vals[valid, c][0], vals[valid, c][-1]))
+        out_imu[:, c] = f(grid_imu).astype(np.float32)
+
+    out = _resample(out_imu, fs_imu, TARGET_FS)
+    sos = _butter_lp(20.0, TARGET_FS)
+    out = sosfiltfilt(sos, out, axis=0).astype(np.float32)
     return _zscore(out)
 
 
 # ── sync helper ────────────────────────────────────────────────────────────────
 
+# Device IDs that carry speech — device 6 carries noise only and is excluded
+# from sync to match the original data collection protocol.
+SPEECH_DEVICE_IDS = {3, 5}
+
 def _load_sync(timing_path: str) -> dict:
-    """Load timing JSON, return eeg_trim_sec and gaze_trim_sec."""
+    """Load timing JSON, return eeg_trim_sec and gaze_trim_sec.
+    Only speech devices (3 and 5) are used for sync, excluding the
+    noise-only device (6) to match the original sync behavior."""
     with open(timing_path) as f:
         t = json.load(f)
-    earliest = min(d["playback_start_unix"] for d in t["audio_devices"])
+    speech_devices = [d for d in t["audio_devices"]
+                      if d["device_id_raw"] in SPEECH_DEVICE_IDS]
+    earliest = min(d["playback_start_unix"] for d in speech_devices)
     return {
         "eeg_trim_sec":  earliest - t["eeg"]["first_sample_unix"],
         "gaze_trim_sec": earliest - t["gaze"]["first_sample_unix"],
@@ -265,9 +305,6 @@ def _load_cache(path: str, required_keys: list,
         return None
     if not all(k in loaded for k in required_keys):
         return None
-    if expected_len is not None:
-        if any(len(loaded[k]) < expected_len for k in required_keys):
-            return None
     return loaded
 
 
@@ -342,9 +379,19 @@ def load_trial(local_path: str,
     audio_dir = root / "media" / "audio" / tid
     envs      = []
     try:
-        for spk in sorted(audio_layout, key=lambda x: x["speaker"]):
-            wav, sr = sf.read(str(audio_dir / spk["filename"]),
-                              dtype="float32", always_2d=False)
+        # Files are named: speaker{N}_dev{D}_{L|R}_spkid{ID}.flac
+        # Match by speaker number prefix since spkid varies per trial
+        attendable = sorted(
+            [spk for spk in audio_layout if spk.get("attendable", True)],
+            key=lambda x: x["speaker"]
+        )
+        for spk in attendable:
+            spk_n   = spk["speaker"]
+            matches = sorted(audio_dir.glob(f"speaker{spk_n}_*.flac"))
+            if not matches:
+                raise FileNotFoundError(
+                    f"No audio file found for speaker {spk_n} in {audio_dir}")
+            wav, sr = sf.read(str(matches[0]), dtype="float32", always_2d=False)
             envs.append(extract_envelope(wav, sr))
     except Exception as e:
         print(f"  Skipping {sid}/{tid}: audio error: {e}")
@@ -388,9 +435,13 @@ def load_trial(local_path: str,
                          f"subject={sid}" / f"trial={tid}.parquet")
                 try:
                     gdf   = pd.read_parquet(gpath)
-                    t_sec = gdf["t_sec"].to_numpy()
-                    gcols = [c for c in gdf.columns
-                             if c not in ("t_sec", "sample_idx")]
+                    t_sec = gdf["t"].to_numpy()
+                    # Pupil: right eye, falling back to left if right is NaN
+                    gdf["pupil"] = gdf["R_pupil"].fillna(gdf["L_pupil"])
+                    # 6 channels: gaze2d(2) + gaze3d(3) + pupil(1)
+                    gcols = ["gaze2d_x", "gaze2d_y",
+                             "gaze3d_x", "gaze3d_y", "gaze3d_z",
+                             "pupil"]
                     computed["gaze"] = preprocess_gaze(
                         gdf[gcols].to_numpy(dtype=np.float32),
                         t_sec, t_start, t_end)
@@ -403,9 +454,9 @@ def load_trial(local_path: str,
                          f"subject={sid}" / f"trial={tid}.parquet")
                 try:
                     idf   = pd.read_parquet(ipath)
-                    t_sec = idf["t_sec"].to_numpy()
-                    icols = [c for c in idf.columns
-                             if c not in ("t_sec", "sample_idx")]
+                    t_sec = idf["t"].to_numpy()
+                    # 6 channels: accelerometer(3) + gyroscope(3)
+                    icols = ["ax", "ay", "az", "gx", "gy", "gz"]
                     computed["imu"] = preprocess_imu(
                         idf[icols].to_numpy(dtype=np.float32),
                         t_sec, t_start, t_end)

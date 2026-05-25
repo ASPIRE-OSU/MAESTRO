@@ -367,15 +367,15 @@ def parse_args():
     p = argparse.ArgumentParser(
         description="LOSO evaluation for 4-speaker AAD"
     )
-    p.add_argument("--local_path",      default='maestro-eeg-dataset',
+    p.add_argument("--local_path",      default='maestro-data',
                    help="Root of the MAESTRO HuggingFace dataset")
-    p.add_argument("--cache_dir",       default=None,
+    p.add_argument("--cache_dir",       default='cache',
                    help="Directory to cache preprocessed video/gaze/IMU features. "
                         "First run computes and saves; subsequent runs load instantly.")
     p.add_argument("--mode",            choices=LOSO_MODES,
                    default="eeg",
                    help=f"One of: {LOSO_MODES}")
-    p.add_argument("--results",         default="results_loso")
+    p.add_argument("--results",         default="results_loso_test")
     p.add_argument("--epochs",          type=int,   default=50)
     p.add_argument("--batch_size",      type=int,   default=32)
     p.add_argument("--lr",              type=float, default=1e-4)

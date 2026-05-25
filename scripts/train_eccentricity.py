@@ -353,13 +353,13 @@ def parse_args():
     p = argparse.ArgumentParser(
         description="T2 Eccentricity binary AAD decoding"
     )
-    p.add_argument("--local_path",            default='maestro-eeg-dataset',
+    p.add_argument("--local_path",            default='maestro-data',
                    help="Root of the MAESTRO HuggingFace dataset")
-    p.add_argument("--cache_dir",       default=None,
+    p.add_argument("--cache_dir",       default='cache',
                    help="Directory to cache preprocessed video/gaze/IMU features. "
                         "First run computes and saves; subsequent runs load instantly.")
     p.add_argument("--mode",            choices=SPATIAL_MODES, default="eeg")
-    p.add_argument("--results",         default="results_eccentricity")
+    p.add_argument("--results",         default="results_eccentricity_test")
     p.add_argument("--n_splits",        type=int,   default=5)
     p.add_argument("--epochs",          type=int,   default=50)
     p.add_argument("--batch_size",      type=int,   default=32)

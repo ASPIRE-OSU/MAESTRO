@@ -138,12 +138,12 @@ def run_kfold(data, results_dir, mode="eeg", n_splits=5,
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--local_path",  default='maestro-eeg-dataset',
+    p.add_argument("--local_path",  default='maestro-data',
                    help="Root of the MAESTRO HuggingFace dataset")
-    p.add_argument("--cache_dir",   default=None,
+    p.add_argument("--cache_dir",   default='cache',
                    help="Cache directory for video/gaze/IMU features")
     p.add_argument("--mode",        choices=VALID_MODES, default="eeg")
-    p.add_argument("--results",     default="results_pooled")
+    p.add_argument("--results",     default="results_pooled_test")
     p.add_argument("--n_splits",    type=int,   default=5)
     p.add_argument("--epochs",      type=int,   default=50)
     p.add_argument("--batch_size",  type=int,   default=32)

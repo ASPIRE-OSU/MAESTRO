@@ -1,6 +1,6 @@
 # MAESTRO Benchmark
 
-Official benchmark code for the **MAESTRO** dataset — the Multimodal Auditory-attention Egocentric Speech-TRacking Open corpus. This repository contains the preprocessing pipeline, baseline models, training scripts, and pre-computed results for all four benchmark tasks defined in the accompanying paper.
+Official benchmark code for the **MAESTRO** dataset - the Multimodal Auditory-attention Egocentric Speech-TRacking Open corpus. This repository contains the preprocessing pipeline, baseline models, training scripts, and pre-computed results for all four benchmark tasks defined in the accompanying paper.
 
 > **Dataset:** [HuggingFace — aspire-osu/maestro-eeg-dataset](https://huggingface.co/datasets/aspire-osu/maestro-eeg-dataset)
 
@@ -33,61 +33,62 @@ MAESTRO is a 16-subject, 100-trial multimodal auditory attention decoding (AAD) 
 
 ## Results
 
-All results use a 30-second decision window and are averaged across five stratified folds. Reported as mean ± std.
+All results use a 30-second decision window and are averaged across five stratified folds.
 
 ### T1 — Four-class attended source decoding
 
 | Condition | EEG only | EEG + Video + Gaze + IMU |
 |---|---|---|
-| Pooled | 58.3% ± 6.0% | 59.8% ± 7.3% |
-| LOSO | 57.3% ± 4.2% | 60.7% ± 6.0% |
+| Pooled | 57.4% | 58.7% |
+| LOSO | 59.7% | 60.6% |
+| Chance | 25.0% | 25.0% |
 
 ### T2 — Attended hemisphere decoding
 
 | Mode | Accuracy |
 |---|---|
-| EEG only | 78.0% ± 1.1% |
-| EEG + Video + Gaze + IMU | 79.7% ± 1.8% |
+| EEG only | 77.5% |
+| EEG + Video + Gaze + IMU | 78.3% |
 | Chance | 50.0% |
 
 ### T3 — Attended eccentricity decoding
 
 | Mode | Accuracy |
 |---|---|
-| EEG only | 69.1% ± 3.8% |
-| EEG + Video + Gaze + IMU | 68.0% ± 2.0% |
+| EEG only | 68.7% |
+| EEG + Video + Gaze + IMU | 70.5% |
 | Chance | 50.0% |
 
 ### T4 — Envelope reconstruction
 
 | Mode | Pearson r |
 |---|---|
-| EEG only | 0.001 ± 0.001 |
-| EEG + Video + Gaze + IMU | 0.103 ± 0.002 |
+| EEG only | 0.003 |
+| EEG + Video + Gaze + IMU | 0.019 |
 
 ---
 
 ## Repository Structure
 
 ```
-maestro-benchmark/
+MAESTRO/
 ├── scripts/
 │   ├── dataloader.py               # Preprocessing, sync, windowing, PyTorch Dataset
 │   ├── model_classification.py     # Multi-encoder dilated conv network (T1)
 │   ├── model_spatial.py            # Binary variant for T2 and T3
 │   ├── model_reconstruction.py     # Linear backward model + Pearson loss (T4)
-│   ├── train_pooled.py             # T1 — pooled 5-fold CV (all modes)
+│   ├── train_pooled.py             # T1 — pooled 5-fold CV
 │   ├── train_loso.py               # T1 — leave-one-subject-out
 │   ├── train_hemisphere.py         # T2 — hemisphere decoding
 │   ├── train_eccentricity.py       # T3 — eccentricity decoding
 │   ├── train_reconstruction.py     # T4 — envelope reconstruction
 │   └── dl_maestro.py               # Dataset download script with rate limit handling
 └── results/
-    ├── T1_pooled/                  # Pre-computed T1 pooled results
-    ├── T1_loso/                    # Pre-computed T1 LOSO results
-    ├── T2/                         # Pre-computed T2 results
-    ├── T3/                         # Pre-computed T3 results
-    └── T4/                         # Pre-computed T4 results
+    ├── results_T1_pooled/          # Pre-computed T1 pooled results
+    ├── results_T1_loso/            # Pre-computed T1 LOSO results
+    ├── results_T2/                 # Pre-computed T2 results
+    ├── results_T3/                 # Pre-computed T3 results
+    └── results_T4/                 # Pre-computed T4 results
 ```
 
 ---
@@ -95,23 +96,24 @@ maestro-benchmark/
 ## Installation
 
 ```bash
-git clone https://github.com/aspire-osu/maestro-benchmark
-cd maestro-benchmark
-pip install torch numpy scipy pandas pyarrow soundfile scikit-learn opencv-python huggingface_hub
+git clone https://github.com/NaimulHassan/MAESTRO
+cd MAESTRO
+pip install -r requirements.txt
 ```
+> **Note:** PyTorch must be installed separately to match your CUDA version. See [pytorch.org](https://pytorch.org/get-started/locally/) for the correct install command. The scripts were tested with Python 3.7, PyTorch 1.13, and CUDA 11.8.
 
 ## Downloading the Dataset
 
 The dataset is publicly available on HuggingFace. Use the provided download script which handles rate limiting automatically by downloading one subject at a time with retries:
 
 ```bash
-python scripts/dl_maestro.py --local_dir /data/maestro
+python scripts/dl_maestro.py --local_dir maestro-data
 ```
 
 To download specific subjects only:
 
 ```bash
-python scripts/dl_maestro.py --local_dir /data/maestro --subjects 1 2 3
+python scripts/dl_maestro.py --local_dir maestro-data --subjects 1 2 3
 ```
 
 The script downloads in three sequential phases — metadata, modality data (EEG, gaze, IMU), and media (audio, video, timing) — with a short pause between each batch to stay within HuggingFace's free-tier rate limits.
@@ -130,11 +132,11 @@ The dataset follows a partitioned Parquet layout:
 │   ├── audio_layout.json       # Speaker-to-file mapping and azimuth angles
 │   └── eeg_channels.json       # Channel names and montage
 ├── data/
-│   ├── eeg/subject=S01/trial=eval_001.parquet    # Columns: t_sec, ch_Fp1, ..., ch_O2
-│   ├── gaze/subject=S01/trial=eval_001.parquet
-│   └── imu/subject=S01/trial=eval_001.parquet
+│   ├── eeg/subject=S01/trial=eval_001.parquet    # Columns: t, ch_Fp1, ..., ch_O2
+│   ├── gaze/subject=S01/trial=eval_001.parquet   # Columns: t, gaze2d_x/y, gaze3d_x/y/z, L/R_pupil, ...
+│   └── imu/subject=S01/trial=eval_001.parquet    # Columns: t, ax, ay, az, gx, gy, gz
 └── media/
-    ├── audio/<trial_id>/<speaker>.flac
+    ├── audio/<trial_id>/speaker{N}_dev{D}_{L|R}_spkid{ID}.flac
     ├── video/subject=S01/eval_001.mp4
     └── timing/subject=S01/trial=eval_001.json    # Unified sync timestamps
 ```
@@ -143,45 +145,45 @@ The dataset follows a partitioned Parquet layout:
 
 ## Usage
 
-All scripts take `--local_path` as the dataset root. An optional `--cache_dir` caches preprocessed video, gaze, and IMU features so subsequent runs load instantly.
+All scripts take `--local_path` as the dataset root. An optional `--cache_dir` caches preprocessed video features so subsequent runs load instantly.
 
 ### T1 — Four-class attended source decoding (pooled)
 
 ```bash
 # EEG only
-python scripts/train_pooled.py --local_path /data/maestro --mode eeg
+python scripts/train_pooled.py --local_path maestro-data --mode eeg
 
 # Full multimodal
-python scripts/train_pooled.py --local_path /data/maestro --mode eeg_vgi \
+python scripts/train_pooled.py --local_path maestro-data --mode eeg_vgi \
                        --cache_dir /cache
 ```
 
 ### T1 — Leave-one-subject-out
 
 ```bash
-python scripts/train_loso.py --local_path /data/maestro --mode eeg
-python scripts/train_loso.py --local_path /data/maestro --mode eeg_vgi --cache_dir /cache
+python scripts/train_loso.py --local_path maestro-data --mode eeg
+python scripts/train_loso.py --local_path maestro-data --mode eeg_vgi --cache_dir /cache
 ```
 
 ### T2 — Attended hemisphere decoding
 
 ```bash
-python scripts/train_hemisphere.py --local_path /data/maestro --mode eeg
-python scripts/train_hemisphere.py --local_path /data/maestro --mode eeg_vgi --cache_dir /cache
+python scripts/train_hemisphere.py --local_path maestro-data --mode eeg
+python scripts/train_hemisphere.py --local_path maestro-data --mode eeg_vgi --cache_dir /cache
 ```
 
 ### T3 — Attended eccentricity decoding
 
 ```bash
-python scripts/train_eccentricity.py --local_path /data/maestro --mode eeg
-python scripts/train_eccentricity.py --local_path /data/maestro --mode eeg_vgi --cache_dir /cache
+python scripts/train_eccentricity.py --local_path maestro-data --mode eeg
+python scripts/train_eccentricity.py --local_path maestro-data --mode eeg_vgi --cache_dir /cache
 ```
 
 ### T4 — Envelope reconstruction
 
 ```bash
-python scripts/train_reconstruction.py --local_path /data/maestro --mode eeg
-python scripts/train_reconstruction.py --local_path /data/maestro --mode eeg_vgi --cache_dir /cache
+python scripts/train_reconstruction.py --local_path maestro-data --mode eeg
+python scripts/train_reconstruction.py --local_path maestro-data --mode eeg_vgi --cache_dir /cache
 ```
 
 ### Supported modes
@@ -202,17 +204,17 @@ python scripts/train_reconstruction.py --local_path /data/maestro --mode eeg_vgi
 
 ## Preprocessing
 
-All modalities are resampled to 64 Hz and processed as non-overlapping 30-second windows (1,920 samples).
+All modalities are resampled to 64 Hz and processed as non-overlapping 30-second windows (1,920 samples). Missing samples in gaze and IMU are handled per channel by dropping invalid samples before interpolation.
 
 | Modality | Pipeline |
 |---|---|
 | EEG | Bandpass 1–40 Hz (4th-order Butterworth) → common average reference → downsample 500→64 Hz |
 | Audio | Hilbert envelope → low-pass 20 Hz → downsample 16000→64 Hz → z-score |
-| Gaze | Linear interpolation to 64 Hz grid → low-pass 10 Hz → z-score |
-| IMU | Linear interpolation → resample to 64 Hz → low-pass 20 Hz → z-score |
+| Gaze | Per-channel NaN drop → linear interpolation to 64 Hz grid → low-pass 10 Hz → z-score |
+| IMU | Per-channel NaN drop → linear interpolation → resample to 64 Hz → low-pass 20 Hz → z-score |
 | Video | Farneback dense optical flow on 160×90 frames → 4 statistics → resample 25→64 Hz → z-score |
 
-Synchronisation uses the unified timing JSON (`media/timing/`) which provides absolute Unix timestamps for EEG, gaze, and all audio devices in a single file.
+Synchronisation uses the unified timing JSON (`media/timing/`), with only speech devices (IDs 3 and 5) used for sync alignment.
 
 ---
 
@@ -220,7 +222,7 @@ Synchronisation uses the unified timing JSON (`media/timing/`) which provides ab
 
 ### Classification (T1, T2, T3)
 
-A multi-encoder dilated causal convolutional network. Each modality is processed by a dedicated encoder, fused via concatenation and linear projection, and compared against speaker audio envelope embeddings via cosine similarity.
+A multi-encoder causal dilated convolutional network. Each modality is processed by a dedicated encoder, fused via concatenation and linear projection, and compared against speaker audio envelope embeddings via cosine similarity.
 
 | Encoder | Layers | Receptive field |
 |---|---|---|
@@ -246,8 +248,8 @@ If you use MAESTRO in your research, please cite:
 @article{hassan2025maestro,
   title   = {{MAESTRO}: A Multimodal Auditory-attention Egocentric Speech-TRacking Open Corpus},
   author  = {Hassan, K M Naimul and Alavi, Seyed Ali and Williamson, Donald},
-  journal = {IEEE/ACM Transactions on Audio, Speech, and Language Processing},
-  year    = {2025}
+  journal = {TBD},
+  year    = {2026}
 }
 ```
 
