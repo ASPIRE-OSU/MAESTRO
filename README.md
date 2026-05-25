@@ -6,6 +6,8 @@ Official benchmark code for the **MAESTRO** dataset - the Multimodal Auditory-at
 
 ---
 
+![MAESTRO experimental setup](media/setup.jpg)
+
 ## Overview
 
 MAESTRO is a 16-subject, 100-trial multimodal auditory attention decoding (AAD) dataset. Each trial records five synchronised data streams while participants listen to four simultaneously presented speakers and attend to one:
