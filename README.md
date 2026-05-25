@@ -6,7 +6,7 @@ Official benchmark code for the **MAESTRO** dataset - the Multimodal Auditory-at
 
 ---
 
-![MAESTRO experimental setup](media/setup.jpg)
+![MAESTRO experimental setup](media/setup.pdf)
 
 ## Overview
 
