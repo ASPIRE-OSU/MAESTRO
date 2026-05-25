@@ -63,7 +63,7 @@ All results use a 30-second decision window and are averaged across five stratif
 
 ### T4 — Envelope reconstruction
 
-| Mode | Pearson r |
+| Mode | - Pearson r |
 |---|---|
 | EEG only | 0.003 |
 | EEG + Video + Gaze + IMU | 0.019 |
