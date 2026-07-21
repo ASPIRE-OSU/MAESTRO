@@ -264,7 +264,6 @@ All 15 non-empty combinations of the four modalities are supported, in a canonic
 | `eeg_gaze`, `eeg_imu`, `eeg_video`, `gaze_imu`, `gaze_video`, `imu_video` | Pairs (6) |
 | `eeg_gaze_imu`, `eeg_gaze_video`, `eeg_imu_video`, `gaze_imu_video` | Triples (4) |
 | `eeg_gaze_imu_video` | Full combination (1) |
-| `gi` → `gaze_imu`, `eeg_vg` → `eeg_gaze_video`, `eeg_vgi` → `eeg_gaze_imu_video` | Legacy aliases |
 
 ---
 
