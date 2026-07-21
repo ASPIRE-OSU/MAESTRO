@@ -3,52 +3,6 @@ dataloader.py
 -------------
 Loads, synchronises, preprocesses and windows EEG + audio + video + gaze + IMU
 for 4-speaker AAD. Built on top of the new HuggingFace dataset format.
-
-New dataset format
-------------------
-  <local_path>/
-    metadata/
-      trials.csv
-      trials_per_subject.csv
-      bad_channels.csv
-      eeg_channels.json
-      audio_layout.json
-      audio_manifest.json
-    data/
-      eeg/subject=S01/trial=eval_001.parquet     (t_sec, sample_idx, ch_Fp1, ...)
-      gaze/subject=S01/trial=eval_001.parquet
-      imu/subject=S01/trial=eval_001.parquet
-    media/
-      audio/<trial_id>/<speaker_file>.flac
-      video/subject=S01/eval_001.mp4
-      timing/subject=S01/trial=eval_001.json     (unified sync timestamps)
-
-Sync (timing JSON)
-------------------
-  {
-    "eeg":  { "first_sample_unix": <float>, ... },
-    "gaze": { "first_sample_unix": <float>, ... },
-    "audio_devices": [
-      { "device_id_raw": 6, "playback_start_unix": <float>, ... },
-      ...
-    ]
-  }
-
-  earliest_playback = min(d["playback_start_unix"] for d in audio_devices)
-  eeg_trim_sec      = earliest_playback - eeg["first_sample_unix"]
-  gaze_trim_sec     = earliest_playback - gaze["first_sample_unix"]
-
-Feature dimensions (all resampled to 64 Hz)
---------------------------------------------
-  EEG   : (T, 32)
-  Video : (T,  4)   mean_mag, std_mag, mean_flow_x, mean_flow_y
-  Gaze  : (T,  6)   from gaze parquet columns
-  IMU   : (T,  6)   from imu parquet columns
-  Audio : (T,  1)   amplitude envelope per speaker
-
-Supported modes
----------------
-  eeg, gaze, imu, video, gi, eeg_gaze, eeg_video, eeg_vg, eeg_vgi
 """
 
 from __future__ import annotations
@@ -64,7 +18,7 @@ import pandas as pd
 import soundfile as sf
 import torch
 from scipy.interpolate import interp1d
-from scipy.signal import butter, hilbert, resample_poly, sosfiltfilt
+from scipy.signal import butter, hilbert, iirnotch, filtfilt, resample_poly, sosfiltfilt
 from torch.utils.data import Dataset
 
 # ── constants ─────────────────────────────────────────────────────────────────
@@ -81,10 +35,77 @@ N_GAZE_CH   = 6
 N_IMU_CH    = 6
 N_SPEAKERS  = 4
 
-VALID_MODES = (
-    "eeg", "gaze", "imu", "video", "gi",
-    "eeg_gaze", "eeg_video", "eeg_vg", "eeg_vgi"
-)
+# ── mode / modality registry ────────────────────────────────────────────────────
+# Canonical mode -> {active modalities} mapping. All other files should
+# call mode_uses(mode) rather than re-deriving this themselves.
+#
+# Canonical names use full underscored modality lists in a fixed order
+# (eeg, gaze, imu, video).
+
+MODE_MODALITIES = {
+    # singles (4)
+    "eeg":               {"eeg"},
+    "gaze":               {"gaze"},
+    "imu":                {"imu"},
+    "video":               {"video"},
+    # pairs (6)
+    "eeg_gaze":           {"eeg", "gaze"},
+    "eeg_imu":            {"eeg", "imu"},
+    "eeg_video":          {"eeg", "video"},
+    "gaze_imu":           {"gaze", "imu"},
+    "gaze_video":         {"gaze", "video"},
+    "imu_video":          {"imu", "video"},
+    # triples (4)
+    "eeg_gaze_imu":       {"eeg", "gaze", "imu"},
+    "eeg_gaze_video":     {"eeg", "gaze", "video"},
+    "eeg_imu_video":      {"eeg", "imu", "video"},
+    "gaze_imu_video":     {"gaze", "imu", "video"},
+    # full combination (1)
+    "eeg_gaze_imu_video": {"eeg", "gaze", "imu", "video"},
+}
+
+# Backward-compatible short aliases -> canonical name
+MODE_ALIASES = {
+    "gi":       "gaze_imu",
+    "eeg_vg":   "eeg_gaze_video",
+    "eeg_vgi":  "eeg_gaze_imu_video",
+}
+
+VALID_MODES = tuple(MODE_MODALITIES.keys()) + tuple(MODE_ALIASES.keys())
+
+
+def _canonical_mode(mode: str) -> str:
+    """Resolve a legacy alias (e.g. 'eeg_vgi') to its canonical name
+    (e.g. 'eeg_gaze_imu_video'); canonical names pass through unchanged."""
+    return MODE_ALIASES.get(mode, mode)
+
+
+def mode_uses(mode: str) -> tuple:
+    """
+    Returns (use_eeg, use_gaze, use_imu, use_video) booleans for a given
+    mode name (canonical or legacy alias). This is the single source of
+    truth for "which modalities does mode X activate" — every model/
+    training script should call this instead of hardcoding its own
+    tuple-membership checks.
+    """
+    canon = _canonical_mode(mode)
+    if canon not in MODE_MODALITIES:
+        raise ValueError(
+            f"Unknown mode '{mode}'. Valid modes: {VALID_MODES}")
+    m = MODE_MODALITIES[canon]
+    return ("eeg" in m, "gaze" in m, "imu" in m, "video" in m)
+
+
+# EEG electrode montage / bad-channel constants
+MASTOIDS = ("M1", "M2")
+ADC_CLIP = 0.0839   # amplifier ADC clip voltage, per the dataset's acquisition spec
+
+try:
+    import mne
+    _HAVE_MNE = True
+except ImportError:
+    _HAVE_MNE = False
+
 
 # ── signal helpers ─────────────────────────────────────────────────────────────
 
@@ -125,14 +146,110 @@ def _interp_grid(ts: np.ndarray, vals: np.ndarray,
     return out
 
 
+# ── EEG bad-channel detection ──────────────────────────────────────────────────
+
+def _detect_bad_channels(eeg_tc: np.ndarray, ch_names: list) -> list:
+    """
+    Lightweight bad-channel detection: flat, saturated, or variance-outlier
+    channels. eeg_tc is (T, C) time-first. Returns sorted list of bad channel
+    names.
+    """
+    data = eeg_tc.T   # (C, T) for per-channel statistics
+    stds = data.std(axis=1)
+    sat  = (np.abs(data) >= ADC_CLIP).mean(axis=1)
+    bad  = set()
+    for i, ch in enumerate(ch_names):
+        if stds[i] < 1e-9 or sat[i] >= 0.1:
+            bad.add(ch)
+    rem = [i for i, ch in enumerate(ch_names) if ch not in bad]
+    if len(rem) >= 3:
+        ac  = np.diff(data[rem], axis=1)
+        v   = np.var(ac, axis=1)
+        med = np.median(v)
+        mad = np.median(np.abs(v - med)) or 1e-30
+        for j, i in enumerate(rem):
+            if abs((v[j] - med) / (1.4826 * mad)) > 6.0:
+                bad.add(ch_names[i])
+    return sorted(bad)
+
+
 # ── EEG preprocessing ──────────────────────────────────────────────────────────
 
-def preprocess_eeg(eeg_raw: np.ndarray, fs_in: int = EEG_FS_RAW) -> np.ndarray:
-    """Bandpass 1-40 Hz, CAR, downsample to 64 Hz. Returns (T, 32)."""
+def filter_reference_eeg(eeg_raw: np.ndarray,
+                         ch_names: list,
+                         fs_in: int = EEG_FS_RAW) -> np.ndarray:
+    """
+
+    Parameters
+    ----------
+    eeg_raw  : (T, C) raw EEG, time-first, FULL unmasked trial recording
+    ch_names : list of C channel names (e.g. "Fp1", ..., "M1", "M2", ...)
+
+    Returns
+    -------
+    (T, C) float32, same length as input (not resampled, not masked),
+    per-channel z-scored
+    """
+    eeg = eeg_raw.astype(np.float64)
+
+    # Notch BEFORE bandpass, matching preprocess.py's _preprocess_mne order
+    b, a = iirnotch(60.0 / (fs_in / 2), Q=30)
+    eeg  = filtfilt(b, a, eeg, axis=0)
+
     sos = _butter_bp(1.0, 40.0, fs_in)
-    eeg = sosfiltfilt(sos, eeg_raw, axis=0).astype(np.float32)
-    eeg -= eeg.mean(axis=1, keepdims=True)
+    eeg = sosfiltfilt(sos, eeg, axis=0)
+
+    bads = _detect_bad_channels(eeg, ch_names)
+
+    if _HAVE_MNE:
+        try:
+            info = mne.create_info(list(ch_names), fs_in, ch_types="eeg")
+            try:
+                info.set_montage("standard_1020", match_case=False,
+                                 on_missing="ignore")
+            except Exception:
+                pass
+            raw = mne.io.RawArray(eeg.T, info, verbose="ERROR")   # MNE wants (C,T)
+            raw.info["bads"] = list(bads)
+
+            good_mastoids = [m for m in MASTOIDS
+                             if m in ch_names and m not in bads]
+            if good_mastoids:
+                raw.set_eeg_reference(ref_channels=good_mastoids, verbose="ERROR")
+            else:
+                raw.set_eeg_reference("average", projection=False, verbose="ERROR")
+
+            if raw.info["bads"]:
+                try:
+                    raw.interpolate_bads(reset_bads=True, verbose="ERROR")
+                except Exception:
+                    pass
+
+            eeg = raw.get_data().T   # back to (T, C)
+        except Exception:
+            eeg = eeg - eeg.mean(axis=1, keepdims=True)
+    else:
+        eeg = eeg - eeg.mean(axis=1, keepdims=True)
+
+    eeg = eeg.astype(np.float32)
+    # Per-channel z-score over the full trial, matching gaze/IMU/video/audio
+    return _zscore(eeg)
+
+
+def preprocess_eeg(eeg_raw: np.ndarray,
+                   ch_names: list,
+                   fs_in: int = EEG_FS_RAW) -> np.ndarray:
+    """
+    Convenience wrapper: filter_reference_eeg() + resample to TARGET_FS.
+    Kept for any external callers expecting the old single-call interface;
+    load_trial() calls filter_reference_eeg() and _resample() separately
+    so filtering can happen on the full trial BEFORE masking to the
+    anchor-end alignment window.
+    """
+    eeg = filter_reference_eeg(eeg_raw, ch_names, fs_in)
     return _resample(eeg, fs_in, TARGET_FS)
+
+
 
 
 # ── audio envelope ─────────────────────────────────────────────────────────────
@@ -196,7 +313,7 @@ def preprocess_gaze(gaze_raw: np.ndarray,
                     t_end: float) -> np.ndarray:
     """Interpolate gaze to 64 Hz grid, LP 10 Hz, z-score. Returns (T, C).
     NaN values are handled per channel by dropping invalid samples before
-    interpolation, matching the original gazedata.gz behavior."""
+    interpolation."""
     mask = (t_sec >= t_start - 0.1) & (t_sec <= t_end + 0.1)
     ts, vals = t_sec[mask], gaze_raw[mask]
     n_out = int((t_end - t_start) * TARGET_FS)
@@ -204,13 +321,12 @@ def preprocess_gaze(gaze_raw: np.ndarray,
     if len(ts) < 4:
         return np.zeros((n_out, C), dtype=np.float32)
 
-    # Interpolate each channel independently, skipping NaN samples
     grid = np.arange(t_start, t_end, 1.0 / TARGET_FS)
     out  = np.zeros((len(grid), C), dtype=np.float32)
     for c in range(C):
         valid = ~np.isnan(vals[:, c])
         if valid.sum() < 4:
-            continue   # leave as zero if too few valid samples
+            continue
         f = interp1d(ts[valid], vals[valid, c], kind="linear",
                      bounds_error=False,
                      fill_value=(vals[valid, c][0], vals[valid, c][-1]))
@@ -237,10 +353,8 @@ def preprocess_imu(imu_raw: np.ndarray,
     if len(ts) < 4:
         return np.zeros((n_out, C), dtype=np.float32)
 
-    fs_imu  = 1.0 / np.median(np.diff(ts)) if len(ts) > 1 else 130.0
-    n_imu   = int((t_end - t_start) * fs_imu)
+    fs_imu = 1.0 / np.median(np.diff(ts)) if len(ts) > 1 else 130.0
 
-    # Interpolate each channel independently, skipping NaN samples
     grid_imu = np.arange(t_start, t_end, 1.0 / fs_imu)
     out_imu  = np.zeros((len(grid_imu), C), dtype=np.float32)
     for c in range(C):
@@ -260,26 +374,62 @@ def preprocess_imu(imu_raw: np.ndarray,
 
 # ── sync helper ────────────────────────────────────────────────────────────────
 
-# Device IDs that carry speech — device 6 carries noise only and is excluded
-# from sync to match the original data collection protocol.
-SPEECH_DEVICE_IDS = {3, 5}
-
 def _load_sync(timing_path: str) -> dict:
-    """Load timing JSON, return eeg_trim_sec and gaze_trim_sec.
-    Only speech devices (3 and 5) are used for sync, excluding the
-    noise-only device (6) to match the original sync behavior."""
+    """
+    Load timing JSON and derive the per-modality alignment references:
+
+      align.anchor_unix / align.end_unix : read directly (precomputed,
+        authoritative) — anchor == max(eeg.first_sample_unix,
+        tobii.recording_start_unix, audio.t0_unix); end == anchor + overlap_sec.
+
+      EEG   : per-sample masking via unix(t_internal) = eeg.first_sample_unix
+              + (t_internal - eeg.t0_internal_sec), not a fixed sample-count trim.
+
+      Gaze/IMU : unix(t) = recording_start_unix + (t - t_first), so the
+              "t" value corresponding to anchor_unix is
+              t_start = (anchor_unix - recording_start_unix) + t_first.
+
+      Video : no separate *_t_first field; frame 0 assumed to correspond
+              to recording_start_unix directly.
+
+      Audio : ONE single reference time, audio.t0_unix, used for ALL
+              speakers regardless of device.
+
+    Returns
+    -------
+    dict with anchor_unix, end_unix, trial_end_sec,
+             eeg_first_sample_unix, eeg_t0_internal_sec,
+             gaze_trim_sec, imu_trim_sec, video_trim_sec, audio_t0_unix
+    """
     with open(timing_path) as f:
         t = json.load(f)
-    speech_devices = [d for d in t["audio_devices"]
-                      if d["device_id_raw"] in SPEECH_DEVICE_IDS]
-    earliest = min(d["playback_start_unix"] for d in speech_devices)
+
+    align   = t["align"]
+    tobii   = t["tobii"]
+    anchor_unix = align["anchor_unix"]
+    end_unix    = align["end_unix"]
+
+    recording_start = tobii["recording_start_unix"]
+    gaze_trim_sec  = (anchor_unix - recording_start) + tobii.get("gaze_t_first", 0.0)
+    imu_trim_sec   = (anchor_unix - recording_start) + tobii.get("imu_t_first",  0.0)
+    video_trim_sec = (anchor_unix - recording_start)
+
+    trial_end_sec = align.get("overlap_sec", end_unix - anchor_unix)
+
     return {
-        "eeg_trim_sec":  earliest - t["eeg"]["first_sample_unix"],
-        "gaze_trim_sec": earliest - t["gaze"]["first_sample_unix"],
+        "anchor_unix":            anchor_unix,
+        "end_unix":               end_unix,
+        "trial_end_sec":          trial_end_sec,
+        "eeg_first_sample_unix":  t["eeg"]["first_sample_unix"],
+        "eeg_t0_internal_sec":    t["eeg"]["t0_internal_sec"],
+        "gaze_trim_sec":          gaze_trim_sec,
+        "imu_trim_sec":           imu_trim_sec,
+        "video_trim_sec":         video_trim_sec,
+        "audio_t0_unix":          t["audio"]["t0_unix"],
     }
 
 
-# ── cache helpers ──────────────────────────────────────────────────────────────
+# ── cache helpers (video, gaze, IMU — one .npz per (subject, trial)) ─────────
 
 def _save_cache(path: str, arrays: dict):
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -327,7 +477,7 @@ def load_trial(local_path: str,
     tid              : trial ID e.g. "eval_001"
     audio_layout     : list of {speaker, filename, azimuth_deg} from audio_layout.json
     attended_speaker : 1-based attended speaker index
-    mode             : one of VALID_MODES
+    mode             : one of VALID_MODES (canonical or legacy alias)
     cache_dir        : optional cache directory for video/gaze/IMU
 
     Returns
@@ -337,10 +487,7 @@ def load_trial(local_path: str,
     """
     root = Path(local_path)
 
-    use_eeg   = mode in ("eeg",   "eeg_gaze", "eeg_video", "eeg_vg", "eeg_vgi")
-    use_video = mode in ("video", "eeg_video", "eeg_vg", "eeg_vgi")
-    use_gaze  = mode in ("gaze",  "gi",        "eeg_gaze", "eeg_vg", "eeg_vgi")
-    use_imu   = mode in ("imu",   "gi",        "eeg_vgi")
+    use_eeg, use_gaze, use_imu, use_video = mode_uses(mode)
 
     # ── Sync ──────────────────────────────────────────────────────────────────
     timing_path = (root / "media" / "timing" /
@@ -354,12 +501,26 @@ def load_trial(local_path: str,
         print(f"  Skipping {sid}/{tid}: sync error: {e}")
         return None
 
-    eeg_trim_sec  = sync["eeg_trim_sec"]
-    gaze_trim_sec = sync["gaze_trim_sec"]
+    anchor_unix    = sync["anchor_unix"]
+    gaze_trim_sec  = sync["gaze_trim_sec"]
+    imu_trim_sec   = sync["imu_trim_sec"]
+    video_trim_sec = sync["video_trim_sec"]
+    trial_end_sec  = sync["trial_end_sec"]
 
     # ── EEG ───────────────────────────────────────────────────────────────────
+    # Cached alongside video/gaze/IMU in the same per-(subject,trial) .npz.
+    # Every EEG sample's own recorded
+    # "t_sec" is converted to unix time and masked to [anchor, anchor+dur],
+    # with filtering applied to the full unmasked recording BEFORE masking.
     eeg_proc = None
-    if use_eeg:
+    eeg_cpath = (os.path.join(cache_dir, f"{sid}_{tid}.npz")
+                if cache_dir else None)
+    eeg_cached = _load_cache(eeg_cpath, ["eeg"], WINDOW_SAMP) \
+                if (use_eeg and eeg_cpath) else None
+
+    if use_eeg and eeg_cached is not None:
+        eeg_proc = eeg_cached["eeg"]
+    elif use_eeg:
         eeg_path = (root / "data" / "eeg" /
                     f"subject={sid}" / f"trial={tid}.parquet")
         if not eeg_path.exists():
@@ -368,19 +529,35 @@ def load_trial(local_path: str,
         try:
             df       = pd.read_parquet(eeg_path)
             ch_cols  = [c for c in df.columns if c.startswith("ch_")]
+            ch_names = [c[3:] for c in ch_cols]
             eeg_raw  = df[ch_cols].to_numpy(dtype=np.float32)
-            trim_smp = int(eeg_trim_sec * EEG_FS_RAW)
-            eeg_proc = preprocess_eeg(eeg_raw[trim_smp:], EEG_FS_RAW)
+
+            t_sec    = df["t_sec"].to_numpy()
+            eeg_unix = sync["eeg_first_sample_unix"] + \
+                      (t_sec - sync["eeg_t0_internal_sec"])
+            mask     = (eeg_unix >= anchor_unix) & \
+                      (eeg_unix <= anchor_unix + trial_end_sec)
+
+            # Filter/notch/reference the FULL unmasked trial recording
+            # first, so sosfiltfilt/filtfilt edge transients land outside the
+            # anchor-end window rather than inside it. Mask AFTER
+            # filtering (and z-scoring), then resample.
+            eeg_filtered = filter_reference_eeg(eeg_raw, ch_names, EEG_FS_RAW)
+            eeg_proc     = _resample(eeg_filtered[mask], EEG_FS_RAW, TARGET_FS)
+
+            if eeg_cpath:
+                _save_cache(eeg_cpath, {"eeg": eeg_proc})
         except Exception as e:
             print(f"  Skipping {sid}/{tid}: EEG error: {e}")
             return None
 
     # ── Audio envelopes ───────────────────────────────────────────────────────
+    # ONE shared reference time
+    # (audio.t0_unix) is used for every speaker's waveform.
     audio_dir = root / "media" / "audio" / tid
-    envs      = []
+    audio_t0  = sync["audio_t0_unix"]
+    envs = []
     try:
-        # Files are named: speaker{N}_dev{D}_{L|R}_spkid{ID}.flac
-        # Match by speaker number prefix since spkid varies per trial
         attendable = sorted(
             [spk for spk in audio_layout if spk.get("attendable", True)],
             key=lambda x: x["speaker"]
@@ -392,6 +569,11 @@ def load_trial(local_path: str,
                 raise FileNotFoundError(
                     f"No audio file found for speaker {spk_n} in {audio_dir}")
             wav, sr = sf.read(str(matches[0]), dtype="float32", always_2d=False)
+
+            i0 = max(0, int(round((anchor_unix - audio_t0) * sr)))
+            i1 = int(round((anchor_unix + trial_end_sec - audio_t0) * sr))
+            wav = wav[i0:i1]
+
             envs.append(extract_envelope(wav, sr))
     except Exception as e:
         print(f"  Skipping {sid}/{tid}: audio error: {e}")
@@ -415,51 +597,53 @@ def load_trial(local_path: str,
                    if cpath else None
 
         if cached is None:
-            min_sec = min(lengths) / TARGET_FS
-            t_start = gaze_trim_sec
-            t_end   = t_start + min_sec
+            min_sec = trial_end_sec if trial_end_sec is not None \
+                     else min(lengths) / TARGET_FS
             computed = {}
 
             if use_video:
+                v_start = video_trim_sec
+                v_end   = v_start + min_sec
                 vpath = (root / "media" / "video" /
                          f"subject={sid}" / f"{tid}.mp4")
                 try:
                     computed["video"] = extract_optical_flow(
-                        str(vpath), t_start, t_end)
+                        str(vpath), v_start, v_end)
                 except Exception as e:
                     print(f"  Skipping {sid}/{tid}: video error: {e}")
                     return None
 
             if use_gaze:
+                g_start = gaze_trim_sec
+                g_end   = g_start + min_sec
                 gpath = (root / "data" / "gaze" /
                          f"subject={sid}" / f"trial={tid}.parquet")
                 try:
                     gdf   = pd.read_parquet(gpath)
                     t_sec = gdf["t"].to_numpy()
-                    # Pupil: right eye, falling back to left if right is NaN
                     gdf["pupil"] = gdf["R_pupil"].fillna(gdf["L_pupil"])
-                    # 6 channels: gaze2d(2) + gaze3d(3) + pupil(1)
                     gcols = ["gaze2d_x", "gaze2d_y",
                              "gaze3d_x", "gaze3d_y", "gaze3d_z",
                              "pupil"]
                     computed["gaze"] = preprocess_gaze(
                         gdf[gcols].to_numpy(dtype=np.float32),
-                        t_sec, t_start, t_end)
+                        t_sec, g_start, g_end)
                 except Exception as e:
                     print(f"  Skipping {sid}/{tid}: gaze error: {e}")
                     return None
 
             if use_imu:
+                i_start = imu_trim_sec
+                i_end   = i_start + min_sec
                 ipath = (root / "data" / "imu" /
                          f"subject={sid}" / f"trial={tid}.parquet")
                 try:
                     idf   = pd.read_parquet(ipath)
                     t_sec = idf["t"].to_numpy()
-                    # 6 channels: accelerometer(3) + gyroscope(3)
                     icols = ["ax", "ay", "az", "gx", "gy", "gz"]
                     computed["imu"] = preprocess_imu(
                         idf[icols].to_numpy(dtype=np.float32),
-                        t_sec, t_start, t_end)
+                        t_sec, i_start, i_end)
                 except Exception as e:
                     print(f"  Skipping {sid}/{tid}: IMU error: {e}")
                     return None
@@ -520,14 +704,6 @@ def build_dataset(local_path: str,
     """
     Build the full pooled dataset dict for a given mode.
 
-    Parameters
-    ----------
-    local_path  : root of the new HuggingFace dataset
-    mode        : one of VALID_MODES
-    subjects    : list of ints (1-16) or "all"
-    trials      : "main" or "all"
-    cache_dir   : optional cache for video/gaze/IMU features
-
     Returns
     -------
     dict: eeg, video, gaze, imu, audio (list of 4 arrays),
@@ -546,10 +722,7 @@ def build_dataset(local_path: str,
 
     subj_list = list(range(1, 17)) if subjects == "all" else list(subjects)
 
-    use_eeg   = mode in ("eeg",   "eeg_gaze", "eeg_video", "eeg_vg", "eeg_vgi")
-    use_video = mode in ("video", "eeg_video", "eeg_vg", "eeg_vgi")
-    use_gaze  = mode in ("gaze",  "gi",        "eeg_gaze", "eeg_vg", "eeg_vgi")
-    use_imu   = mode in ("imu",   "gi",        "eeg_vgi")
+    use_eeg, use_gaze, use_imu, use_video = mode_uses(mode)
 
     all_eeg      = [] if use_eeg   else None
     all_video    = [] if use_video else None

@@ -2,45 +2,12 @@
 train_hemisphere.py
 -------------------
 T1 (Attended Hemisphere) — binary AAD experiment.
-
-Task
-----
-  Predict whether the attended speaker is in the left or right hemisphere:
-    Left  (label 0): S1 (-67.5°) or S2 (-22.5°)
-    Right (label 1): S3 (+22.5°) or S4 (+67.5°)
-
-  Chance level: 0.5
-
-Audio grouping
---------------
-  env_left  = mean(env_S1, env_S2)   → left hemisphere envelope
-  env_right = mean(env_S3, env_S4)   → right hemisphere envelope
-
-  The model compares EEG/multimodal embedding against these two grouped
-  envelopes via cosine similarity → binary softmax.
-
-Modes
------
-  eeg     : EEG only
-  eeg_vgi : EEG + Video + Gaze + IMU
-
-Evaluation
-----------
-  5-fold stratified trial-level CV (stratified on binary hemisphere label).
-  Reports binary accuracy mean ± std across folds.
-  Directly comparable to prior binary AAD work.
-
-Usage
------
-  python train_hemisphere.py --root /data --trials trials.csv --mode eeg
-
-  python train_hemisphere.py --root /data --trials trials.csv --mode eeg_vgi \\
-                             --video_root /video --cache_dir /cache
 """
 
 import os
 import json
 import argparse
+import zlib
 
 import numpy as np
 import torch
@@ -64,8 +31,24 @@ if torch.cuda.is_available():
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Supported modes for spatial tasks
-SPATIAL_MODES = ("eeg", "eeg_vgi")
+
+def _mode_seed(base_seed: int, mode: str) -> int:
+    """
+    Deterministic mode-dependent seed offset, fixing a seed COLLISION
+    bug: per-fold reseeding alone (SEED + fold) is not sufficient when
+    two DIFFERENT modes share a fold and produce architecturally
+    IDENTICAL model shapes (e.g. gaze and imu are both 6-channel single
+    modalities) — both runs would get identical initial weights,
+    identical DataLoader shuffle order, and identical per-batch
+    speaker-permutation draws, differing only in the numeric content of
+    the input tensors. This was empirically confirmed to produce
+    bit-identical outputs (1.0000 prediction agreement, identical
+    confusion matrices) between independently-trained gaze and imu
+    models sharing a fold. Uses zlib.crc32 rather than Python's builtin
+    hash(), which is randomized per-process (PYTHONHASHSEED) and would
+    silently break run-to-run reproducibility.
+    """
+    return base_seed + (zlib.crc32(mode.encode()) % 10_000)
 
 # T1 hemisphere label mapping (0-based speaker index → binary label)
 # S1(0)=left, S2(1)=left, S3(2)=right, S4(3)=right
@@ -73,9 +56,27 @@ HEMISPHERE_LABEL = {0: 0, 1: 0, 2: 1, 3: 1}
 
 N_CLASSES = 2   # binary: left=0, right=1
 
+# All 18 mode names (15 canonical + 3 legacy aliases), human-readable
+# labels for logging/result-JSON purposes.
 MODE_LABELS = {
-    "eeg":     "EEG only",
-    "eeg_vgi": "EEG+Video+Gaze+IMU",
+    "eeg":                 "EEG only",
+    "gaze":                "Gaze only",
+    "imu":                 "IMU only",
+    "video":               "Video only",
+    "eeg_gaze":            "EEG+Gaze",
+    "eeg_imu":             "EEG+IMU",
+    "eeg_video":           "EEG+Video",
+    "gaze_imu":            "Gaze+IMU",
+    "gaze_video":          "Gaze+Video",
+    "imu_video":           "IMU+Video",
+    "eeg_gaze_imu":        "EEG+Gaze+IMU",
+    "eeg_gaze_video":      "EEG+Gaze+Video",
+    "eeg_imu_video":       "EEG+IMU+Video",
+    "gaze_imu_video":      "Gaze+IMU+Video",
+    "eeg_gaze_imu_video":  "EEG+Gaze+IMU+Video",
+    "gi":                  "Gaze+IMU",             # alias -> gaze_imu
+    "eeg_vg":              "EEG+Gaze+Video",        # alias -> eeg_gaze_video
+    "eeg_vgi":             "EEG+Gaze+IMU+Video",     # alias -> eeg_gaze_imu_video
 }
 
 
@@ -167,8 +168,19 @@ def collate_fn(batch):
 
 # ── model ─────────────────────────────────────────────────────────────────────
 
-def _new_model(mode: str) -> AADModel:
-    """Binary (2-class) AADModel for hemisphere decoding."""
+def _new_model(mode: str, seed: int) -> AADModel:
+    """
+    Binary (2-class) AADModel for hemisphere decoding, reseeding
+    immediately beforehand so this fold's weight initialization is
+    independent of however many prior folds have already run in this
+    process. Without this, a later fold can inherit whatever RNG state
+    prior folds' weight init + DataLoader shuffling + Adam updates
+    happened to leave behind.
+    """
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
     return AADModel(mode=mode).to(DEVICE)
 
 
@@ -322,7 +334,11 @@ def run_kfold(data: dict,
         vl_loader = DataLoader(vl_ds, batch_size=batch_size, shuffle=False,
                                collate_fn=collate_fn, num_workers=0)
 
-        model     = _new_model(mode=mode)
+        # Reseed per-fold AND per-mode (see _mode_seed) so every fold gets
+        # an independent, reproducible initialization instead of
+        # inheriting whatever RNG state prior folds happened to leave
+        # behind, and so different modes sharing a fold don't collide.
+        model     = _new_model(mode=mode, seed=_mode_seed(SEED + fold, mode))
         ckpt_path = os.path.join(results_dir, f"fold_{fold+1}_{mode}_hemisphere.pt")
 
         best_acc = train_model(
@@ -365,18 +381,16 @@ def run_kfold(data: dict,
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
-
 def parse_args():
     p = argparse.ArgumentParser(
         description="T1 Hemisphere binary AAD decoding"
     )
-    p.add_argument("--local_path",            default='maestro-data',
+    p.add_argument("--local_path",      default='maestro',
                    help="Root of the MAESTRO HuggingFace dataset")
     p.add_argument("--cache_dir",       default='cache',
-                   help="Directory to cache preprocessed video/gaze/IMU features. "
-                        "First run computes and saves; subsequent runs load instantly.")
-    p.add_argument("--mode",            choices=SPATIAL_MODES, default="eeg")
-    p.add_argument("--results",         default="results_hemisphere_test")
+                   help="Directory to cache preprocessed video/gaze/IMU features.")
+    p.add_argument("--mode",            choices=VALID_MODES, default="eeg")
+    p.add_argument("--results",         default="results_hemisphere")
     p.add_argument("--n_splits",        type=int,   default=5)
     p.add_argument("--epochs",          type=int,   default=50)
     p.add_argument("--batch_size",      type=int,   default=32)

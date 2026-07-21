@@ -1,14 +1,10 @@
 """
-train.py — updated for new HuggingFace dataset format.
+train_pooled.py — updated for new HuggingFace dataset format.
 5-fold stratified CV for 4-speaker AAD, all modes.
-
-Usage
------
-  python train.py --local_path /data/maestro --mode eeg
-  python train.py --local_path /data/maestro --mode eeg_vgi --cache_dir /cache
 """
 
 import os, json, argparse
+import zlib
 import numpy as np
 import torch
 import torch.nn as nn
@@ -23,11 +19,46 @@ torch.manual_seed(SEED); np.random.seed(SEED)
 if torch.cuda.is_available(): torch.cuda.manual_seed_all(SEED)
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+
+def _mode_seed(base_seed: int, mode: str) -> int:
+    """
+    Deterministic mode-dependent seed offset, fixing a seed COLLISION
+    bug: per-fold reseeding alone (SEED + fold) is not sufficient when
+    two DIFFERENT modes share a fold and produce architecturally
+    IDENTICAL model shapes (e.g. gaze and imu are both 6-channel single
+    modalities) — both runs would get identical initial weights,
+    identical DataLoader shuffle order, and identical per-batch
+    speaker-permutation draws, differing only in the numeric content of
+    the input tensors. This was empirically confirmed to produce
+    bit-identical outputs (1.0000 prediction agreement, identical
+    confusion matrices) between independently-trained gaze and imu
+    models sharing a fold. Uses zlib.crc32 rather than Python's builtin
+    hash(), which is randomized per-process (PYTHONHASHSEED) and would
+    silently break run-to-run reproducibility.
+    """
+    return base_seed + (zlib.crc32(mode.encode()) % 10_000)
+
+# All 18 mode names (15 canonical + 3 legacy aliases), human-readable
+# labels for logging/result-JSON purposes.
 MODE_LABELS = {
-    "eeg": "EEG only", "gaze": "Gaze only", "imu": "IMU only",
-    "video": "Video only", "gi": "Gaze+IMU", "eeg_gaze": "EEG+Gaze",
-    "eeg_video": "EEG+Video", "eeg_vg": "EEG+Video+Gaze",
-    "eeg_vgi": "EEG+Video+Gaze+IMU",
+    "eeg":                 "EEG only",
+    "gaze":                "Gaze only",
+    "imu":                 "IMU only",
+    "video":               "Video only",
+    "eeg_gaze":            "EEG+Gaze",
+    "eeg_imu":             "EEG+IMU",
+    "eeg_video":           "EEG+Video",
+    "gaze_imu":            "Gaze+IMU",
+    "gaze_video":          "Gaze+Video",
+    "imu_video":           "IMU+Video",
+    "eeg_gaze_imu":        "EEG+Gaze+IMU",
+    "eeg_gaze_video":      "EEG+Gaze+Video",
+    "eeg_imu_video":       "EEG+IMU+Video",
+    "gaze_imu_video":      "Gaze+IMU+Video",
+    "eeg_gaze_imu_video":  "EEG+Gaze+IMU+Video",
+    "gi":                  "Gaze+IMU",             # alias -> gaze_imu
+    "eeg_vg":              "EEG+Gaze+Video",        # alias -> eeg_gaze_video
+    "eeg_vgi":             "EEG+Gaze+IMU+Video",     # alias -> eeg_gaze_imu_video
 }
 
 
@@ -89,6 +120,23 @@ def train_model(model, tr_loader, vl_loader, epochs, ckpt_path,
     return best_acc
 
 
+def _new_model(mode: str, seed: int) -> AADModel:
+    """
+    Build a fresh model, reseeding immediately beforehand so this fold's
+    weight initialization is independent of however many prior folds have
+    already run in this process, AND independent of which OTHER mode may
+    have used this same fold number (see _mode_seed() above — without
+    the mode-dependent offset, two different modes sharing a fold and an
+    architecturally-identical model shape would get bit-identical
+    initialization, DataLoader shuffling, and training dynamics).
+    """
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    return AADModel(mode=mode).to(DEVICE)
+
+
 def run_kfold(data, results_dir, mode="eeg", n_splits=5,
               epochs=50, batch_size=32, lr=1e-4, smoothing=0.1):
     from collections import Counter
@@ -112,7 +160,11 @@ def run_kfold(data, results_dir, mode="eeg", n_splits=5,
                                collate_fn=collate_fn, num_workers=0)
         vl_loader = DataLoader(vl_ds, batch_size, shuffle=False,
                                collate_fn=collate_fn, num_workers=0)
-        model     = AADModel(mode=mode).to(DEVICE)
+        # Reseed per-fold AND per-mode (see _mode_seed) so every fold gets
+        # an independent, reproducible initialization instead of
+        # inheriting whatever RNG state prior folds happened to leave
+        # behind, and so different modes sharing a fold don't collide.
+        model     = _new_model(mode=mode, seed=_mode_seed(SEED + fold, mode))
         ckpt_path = os.path.join(results_dir, f"fold_{fold+1}_{mode}.pt")
         best_acc  = train_model(model, tr_loader, vl_loader,
                                 epochs, ckpt_path, lr, smoothing)
@@ -138,12 +190,12 @@ def run_kfold(data, results_dir, mode="eeg", n_splits=5,
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--local_path",  default='maestro-data',
+    p.add_argument("--local_path",  default='maestro',
                    help="Root of the MAESTRO HuggingFace dataset")
     p.add_argument("--cache_dir",   default='cache',
                    help="Cache directory for video/gaze/IMU features")
     p.add_argument("--mode",        choices=VALID_MODES, default="eeg")
-    p.add_argument("--results",     default="results_pooled_test")
+    p.add_argument("--results",     default="results_pooled")
     p.add_argument("--n_splits",    type=int,   default=5)
     p.add_argument("--epochs",      type=int,   default=50)
     p.add_argument("--batch_size",  type=int,   default=32)

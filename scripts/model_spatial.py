@@ -1,53 +1,21 @@
 """
 model_spatial.py
-----------------
-Binary AAD model for spatial decoding tasks (T1 hemisphere, T2 eccentricity).
-
-Identical architecture to model.py but with n_speakers=2 (binary softmax).
-Do not use for the main 4-class AAD experiment — use model.py instead.
-
-Supported modes
----------------
-  eeg       : EEG encoder only
-  video     : Video encoder only
-  gi        : Gaze encoder + IMU encoder → concat → Linear(2D→D)
-  eeg_video : EEG + Video encoders → concat → Linear(2D→D)
-  eeg_vgi   : EEG + Video + Gaze + IMU → concat → Linear(4D→D)
-
-Encoder depths (layers) per modality
---------------------------------------
-  EEG   : 6 layers  — receptive field ~5.7s, full window coverage
-  Audio : 6 layers  — same as EEG
-  Video : 3 layers  — ~0.4s; optical flow is already a local temporal feature
-  Gaze  : 4 layers  — ~1.3s; covers typical fixation duration
-  IMU   : 5 layers  — ~4s; head movements span several seconds
-
-All encoders use kernel_size=3, dilation_filters=16, causal padding.
-EEG encoder has an additional 1×1 spatial mixing layer (spatial=True).
+--------------------------
+Binary AAD model (T1 hemisphere, T2 eccentricity)
 """
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from dataloader import (N_EEG_CH, N_VIDEO_CH, N_GAZE_CH, N_IMU_CH, VALID_MODES)
+from dataloader import (N_EEG_CH, N_VIDEO_CH, N_GAZE_CH, N_IMU_CH,
+                        VALID_MODES, mode_uses)
 
 N_SPEAKERS = 2   # binary: left/right (T1) or inner/outer (T2)
 
 
 class DilatedEncoder(nn.Module):
-    """
-    Causal dilated convolutional encoder.
-
-    Parameters
-    ----------
-    in_channels      : input channels
-    spatial_filters  : channels after optional 1×1 spatial layer (EEG only)
-    dilation_filters : channels in each dilated conv layer (D)
-    layers           : number of dilated conv layers
-    kernel_size      : conv kernel; dilation at layer i = kernel_size**i
-    spatial          : if True, prepend a 1×1 spatial mixing conv
-    """
+    """Causal dilated convolutional encoder. Identical to the gated variant."""
 
     def __init__(self,
                  in_channels: int,
@@ -84,87 +52,90 @@ class DilatedEncoder(nn.Module):
         self.out_channels = dilation_filters
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """x: (B, T, C) → (B, T, D)"""
-        x = x.transpose(1, 2)                      # (B, C, T)
+        """x: (B, T, C) -> (B, T, D_mod)"""
+        x = x.transpose(1, 2)
         if self.spatial:
             x = self.spatial_conv(x)
         for conv, act in zip(self.dil_convs, self.acts):
             x = conv(x)
             if conv.padding[0] > 0:
-                x = x[:, :, :-(conv.padding[0])]   # causal trim
+                x = x[:, :, :-(conv.padding[0])]
             x = act(x)
-        return x.transpose(1, 2)                    # (B, T, D)
+        return x.transpose(1, 2)
 
 
 class AADModel(nn.Module):
     """
-    Binary (2-class) AAD model for spatial decoding (T1/T2).
-
-    Identical to AADModel in model.py but with N_SPEAKERS=2.
+    Binary (2-class) AAD model with FIXED CONCATENATION fusion (Option 1).
 
     Parameters
     ----------
     mode             : one of VALID_MODES
-    dilation_filters : embedding dimension D for all encoders
+    D_eeg            : EEG encoder embedding width
+    D_gaze           : Gaze encoder embedding width
+    D_imu            : IMU encoder embedding width
+    D_video          : Video encoder embedding width
+    D_common         : shared dimension every modality (and audio) is
+                       projected into before fusion/cosine similarity
     spatial_filters  : EEG spatial layer width
     """
 
     def __init__(self,
-                 mode: str             = "eeg",
-                 dilation_filters: int = 16,
-                 spatial_filters: int  = 8):
+                 mode: str            = "eeg",
+                 D_eeg: int           = 16,
+                 D_gaze: int          = 16,
+                 D_imu: int           = 16,
+                 D_video: int         = 16,
+                 D_common: int        = 16,
+                 spatial_filters: int = 8):
         super().__init__()
         assert mode in VALID_MODES, f"mode must be one of {VALID_MODES}"
-        self.mode = mode
-        D = dilation_filters
+        self.mode     = mode
+        self.D_common = D_common
 
-        use_eeg   = mode in ("eeg",   "eeg_gaze", "eeg_video", "eeg_vg", "eeg_vgi")
-        use_video = mode in ("video", "eeg_video", "eeg_vg", "eeg_vgi")
-        use_gaze  = mode in ("gaze",  "gi",    "eeg_gaze", "eeg_vg", "eeg_vgi")
-        use_imu   = mode in ("imu",   "gi",    "eeg_vgi")
+        use_eeg, use_gaze, use_imu, use_video = mode_uses(mode)
 
-        # ── Brain/scene encoders ─────────────────────────────────────────────
         if use_eeg:
             self.eeg_encoder = DilatedEncoder(
                 in_channels=N_EEG_CH, spatial_filters=spatial_filters,
-                dilation_filters=D, layers=7, spatial=True
+                dilation_filters=D_eeg, layers=7, spatial=True
             )
+            self.eeg_proj = nn.Linear(D_eeg, D_common)
         if use_video:
             self.video_encoder = DilatedEncoder(
-                in_channels=N_VIDEO_CH, dilation_filters=D,
+                in_channels=N_VIDEO_CH, dilation_filters=D_video,
                 layers=4, spatial=False
             )
+            self.video_proj = nn.Linear(D_video, D_common)
         if use_gaze:
             self.gaze_encoder = DilatedEncoder(
-                in_channels=N_GAZE_CH, dilation_filters=D,
+                in_channels=N_GAZE_CH, dilation_filters=D_gaze,
                 layers=6, spatial=False
             )
+            self.gaze_proj = nn.Linear(D_gaze, D_common)
         if use_imu:
             self.imu_encoder = DilatedEncoder(
-                in_channels=N_IMU_CH, dilation_filters=D,
+                in_channels=N_IMU_CH, dilation_filters=D_imu,
                 layers=6, spatial=False
             )
+            self.imu_proj = nn.Linear(D_imu, D_common)
 
-        # ── Fusion projection ─────────────────────────────────────────────────
-        # Count how many encoders are active
+        # ── FIXED CONCATENATION FUSION ─────────────────────────────────────────
         n_enc = sum([use_eeg, use_video, use_gaze, use_imu])
         if n_enc > 1:
             self.fusion = nn.Sequential(
-                nn.Linear(n_enc * D, D),
+                nn.Linear(n_enc * D_common, D_common),
                 nn.ReLU(),
             )
 
-        # ── Audio encoder (shared weights across all 4 speakers) ──────────────
         self.audio_encoder = DilatedEncoder(
-            in_channels=1, dilation_filters=D,
+            in_channels=1, dilation_filters=D_common,
             layers=7, spatial=False
         )
 
-        # ── Cosine sim → scalar score per speaker ─────────────────────────────
-        self.sim_proj = nn.Linear(D, 1)
+        self.sim_proj = nn.Linear(D_common, 1)
 
     def _cosine_sim(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-        """Mean cosine similarity along time axis. (B,T,D) → (B,D)"""
         return (F.normalize(a, dim=2) * F.normalize(b, dim=2)).mean(dim=1)
 
     def forward(self,
@@ -174,70 +145,53 @@ class AADModel(nn.Module):
                 imu:   torch.Tensor,
                 audio: list) -> torch.Tensor:
         """
-        Parameters
-        ----------
-        eeg   : (B, T, 32) or None
-        video : (B, T,  4) or None
-        gaze  : (B, T,  6) or None
-        imu   : (B, T,  6) or None
-        audio : list of N_SPEAKERS tensors, each (B, T, 1)
-
         Returns
         -------
         probs : (B, N_SPEAKERS)
         """
-        # Collect all active embeddings
         embeddings = []
         if eeg   is not None and hasattr(self, 'eeg_encoder'):
-            embeddings.append(self.eeg_encoder(eeg))
+            embeddings.append(self.eeg_proj(self.eeg_encoder(eeg)))
         if video is not None and hasattr(self, 'video_encoder'):
-            embeddings.append(self.video_encoder(video))
+            embeddings.append(self.video_proj(self.video_encoder(video)))
         if gaze  is not None and hasattr(self, 'gaze_encoder'):
-            embeddings.append(self.gaze_encoder(gaze))
+            embeddings.append(self.gaze_proj(self.gaze_encoder(gaze)))
         if imu   is not None and hasattr(self, 'imu_encoder'):
-            embeddings.append(self.imu_encoder(imu))
-
-        # Fuse
-        if len(embeddings) == 1:
-            brain_enc = embeddings[0]                        # (B, T, D)
-        elif hasattr(self, 'fusion'):
-            brain_enc = self.fusion(
-                torch.cat(embeddings, dim=2)                 # (B, T, n*D)
-            )                                                # (B, T, D)
-        else:
-            # Fallback: mean pooling if fusion layer missing (should not happen)
-            brain_enc = torch.stack(embeddings, dim=0).mean(dim=0)
+            embeddings.append(self.imu_proj(self.imu_encoder(imu)))
 
         if len(embeddings) == 0:
             raise RuntimeError(
-                f"No modality embeddings computed for mode='{self.mode}'. "
-                "Check that the correct modality tensors are passed to forward()."
-            )
+                f"No modality embeddings computed for mode='{self.mode}'.")
 
-        # Cosine similarity vs each audio embedding
+        if len(embeddings) == 1:
+            brain_enc = embeddings[0]
+        elif hasattr(self, 'fusion'):
+            brain_enc = self.fusion(torch.cat(embeddings, dim=2))
+        else:
+            brain_enc = torch.stack(embeddings, dim=0).mean(dim=0)
+
         logits = []
         for aud in audio:
             aud_enc = self.audio_encoder(aud)
-            sim     = self._cosine_sim(brain_enc, aud_enc)   # (B, D)
-            logits.append(self.sim_proj(sim))                # (B, 1)
+            sim     = self._cosine_sim(brain_enc, aud_enc)
+            logits.append(self.sim_proj(sim))
 
-        return F.softmax(torch.cat(logits, dim=1), dim=1)   # (B, 4)
+        return F.softmax(torch.cat(logits, dim=1), dim=1)
 
-
-# ── quick sanity check ────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     B, T = 8, 320
-    print(f"{'Mode':<12} {'Params':>8}  Output  Sums≈1")
-    print("-" * 45)
+    print(f"{'Mode':<22} {'Params':>8}  Output  Sums≈1")
+    print("-" * 55)
     for mode in VALID_MODES:
         model = AADModel(mode=mode)
-        eeg   = torch.randn(B, T, N_EEG_CH)   if mode in ("eeg",   "eeg_gaze", "eeg_video", "eeg_vg", "eeg_vgi") else None
-        video = torch.randn(B, T, N_VIDEO_CH)  if mode in ("video", "eeg_video", "eeg_vg", "eeg_vgi")               else None
-        gaze  = torch.randn(B, T, N_GAZE_CH)   if mode in ("gaze",  "gi",    "eeg_gaze", "eeg_vg", "eeg_vgi")       else None
-        imu   = torch.randn(B, T, N_IMU_CH)    if mode in ("imu",   "gi",    "eeg_vgi")                                     else None
+        use_eeg, use_gaze, use_imu, use_video = mode_uses(mode)
+        eeg   = torch.randn(B, T, N_EEG_CH)   if use_eeg   else None
+        video = torch.randn(B, T, N_VIDEO_CH) if use_video else None
+        gaze  = torch.randn(B, T, N_GAZE_CH)  if use_gaze  else None
+        imu   = torch.randn(B, T, N_IMU_CH)   if use_imu   else None
         audio = [torch.randn(B, T, 1) for _ in range(N_SPEAKERS)]
         probs = model(eeg, video, gaze, imu, audio)
         n     = sum(p.numel() for p in model.parameters() if p.requires_grad)
         ok    = probs.sum(dim=1).allclose(torch.ones(B), atol=1e-5)
-        print(f"{mode:<12} {n:>8,}  {tuple(probs.shape)}  {ok}")
+        print(f"{mode:<22} {n:>8,}  {tuple(probs.shape)}  {ok}")

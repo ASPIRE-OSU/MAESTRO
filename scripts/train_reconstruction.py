@@ -2,28 +2,12 @@
 train_reconstruction.py
 -----------------------
 Envelope reconstruction experiment for T4 (linear backward model only).
-
-Paradigm
---------
-  Train a linear backward model to reconstruct the attended speaker's
-  audio envelope from EEG or multimodal input. Evaluate using Pearson
-  correlation between the reconstructed and attended envelopes.
-
-Evaluation
-----------
-  5-fold stratified trial-level CV. Supports EEG only or multimodal input.
-  30s windows (WINDOW_SAMP = 1920 samples @ 64 Hz).
-
-Usage
------
-  python train_reconstruction.py --local_path /data/maestro --mode eeg
-  python train_reconstruction.py --local_path /data/maestro --mode eeg_vgi \\
-                                 --cache_dir /cache
 """
 
 import os
 import json
 import argparse
+import zlib
 
 import numpy as np
 import torch
@@ -33,7 +17,8 @@ from torch.utils.data import Dataset, DataLoader
 from dataloader import (build_dataset, get_trial_level_splits,
                         N_EEG_CH, N_VIDEO_CH, N_GAZE_CH, N_IMU_CH,
                         N_SPEAKERS, WINDOW_SAMP, TARGET_FS, VALID_MODES)
-from model_reconstruction import LinearModel, pearson_r, pearson_loss
+from model_reconstruction import (LinearModel, pearson_r, pearson_loss,
+                                  n_channels_for_mode)
 
 
 # ── reproducibility ───────────────────────────────────────────────────────────
@@ -45,6 +30,28 @@ if torch.cuda.is_available():
     torch.cuda.manual_seed_all(SEED)
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+def _mode_seed(base_seed: int, mode: str) -> int:
+    """
+    Deterministic mode-dependent seed offset, fixing a seed COLLISION
+    bug that is actually WORSE for this file than for the classification
+    tasks: LinearModel's architecture is determined purely by
+    n_in_channels, and several DIFFERENT modes share identical channel
+    counts (e.g. gaze alone and imu alone are both 6ch; eeg_gaze and
+    eeg_imu are both 38ch; gaze_video and imu_video are both 10ch).
+    Per-fold reseeding alone (SEED + fold) would give every such pair
+    identical initial weights, identical DataLoader shuffle order, and
+    identical training dynamics whenever they share a fold — this was
+    empirically confirmed (1.0000 prediction agreement, identical
+    confusion matrices) between independently-trained gaze and imu
+    classification models sharing a fold, and the exact same mechanism
+    applies here to any pair of modes with equal n_in_channels. Uses
+    zlib.crc32 rather than Python's builtin hash(), which is randomized
+    per-process (PYTHONHASHSEED) and would silently break run-to-run
+    reproducibility.
+    """
+    return base_seed + (zlib.crc32(mode.encode()) % 10_000)
 
 
 # ── reconstruction dataset ────────────────────────────────────────────────────
@@ -108,11 +115,13 @@ def _run_epoch(model, loader, optimizer=None, train=True):
             if train:
                 optimizer.zero_grad()
                 loss.backward()
-                nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-                optimizer.step()
+                # Skip update if loss is NaN to prevent weight corruption
+                if not torch.isnan(loss):
+                    nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                    optimizer.step()
 
-            total_loss += loss.item()
-            total_r    += r
+            total_loss += loss.item() if not torch.isnan(loss) else 0.0
+            total_r    += r if not (r != r) else 0.0   # check for NaN
             n          += 1
 
     return total_loss / n, total_r / n
@@ -121,8 +130,15 @@ def _run_epoch(model, loader, optimizer=None, train=True):
 # ── training loop ─────────────────────────────────────────────────────────────
 
 def train_model(model, train_loader, val_loader,
-                epochs, ckpt_path, lr=1e-4):
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+                epochs, ckpt_path, lr=1e-4, weight_decay=1e-3):
+    """
+    Adam with weight_decay (L2 penalty), approximating ridge regression —
+    the standard regularization for linear backward AAD models, which
+    are normally fit via ridge-regularized closed-form least squares
+    rather than unconstrained gradient descent.
+    """
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr,
+                                 weight_decay=weight_decay)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="max", factor=0.5, patience=5, min_lr=1e-6)
     best_val_r   = -1.0
@@ -147,34 +163,51 @@ def train_model(model, train_loader, val_loader,
                 print(f"  Early stopping at epoch {epoch}")
                 break
 
-    model.load_state_dict(torch.load(ckpt_path, map_location=DEVICE))
+    # Only load checkpoint if it was saved at least once
+    if os.path.exists(ckpt_path):
+        model.load_state_dict(torch.load(ckpt_path, map_location=DEVICE))
     return best_val_r
 
 
 # ── 5-fold CV ─────────────────────────────────────────────────────────────────
 
+def _new_model(mode: str, n_in: int, seed: int) -> LinearModel:
+    """
+    Build a fresh model, reseeding immediately beforehand so this fold's
+    weight initialization is independent of however many prior folds have
+    already run in this process, AND independent of which OTHER mode may
+    have used this same fold number and happens to share the same
+    n_in_channels (see _mode_seed() above).
+    """
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    return LinearModel(integration_window=32, n_in_channels=n_in).to(DEVICE)
+
+
 def run_kfold(data: dict,
               results_dir: str,
-              mode: str       = "eeg",
-              n_splits: int   = 5,
-              epochs: int     = 50,
-              batch_size: int = 32,
-              lr: float       = 1e-4):
+              mode: str          = "eeg",
+              n_splits: int      = 5,
+              epochs: int        = 50,
+              batch_size: int    = 32,
+              lr: float          = 1e-4,
+              weight_decay: float = 1e-3):
     """5-fold stratified trial-level CV for the linear reconstruction model."""
     os.makedirs(results_dir, exist_ok=True)
 
     n_trials  = len(data["trial_meta_ids"])
     n_windows = len(data["audio"][0])
-    print(f"\nMode    : {mode}")
-    print(f"Dataset : {n_trials} trials, {n_windows} windows")
+    print(f"\nMode         : {mode}")
+    print(f"Dataset      : {n_trials} trials, {n_windows} windows")
+    print(f"Weight decay : {weight_decay}")
     print(f"Running {n_splits}-fold stratified CV\n")
 
-    # Compute total input channels from active modalities
-    n_in = 0
-    if data["eeg"]   is not None: n_in += N_EEG_CH
-    if data["gaze"]  is not None: n_in += N_GAZE_CH
-    if data["imu"]   is not None: n_in += N_IMU_CH
-    if data["video"] is not None: n_in += N_VIDEO_CH
+    # Total input channels, derived from dataloader.mode_uses() via
+    # n_channels_for_mode() rather than manually summing per-modality
+    # constants for each active modality.
+    n_in = n_channels_for_mode(mode)
     print(f"Input channels: {n_in}")
 
     fold_results = {}
@@ -199,12 +232,17 @@ def run_kfold(data: dict,
         vl_loader = DataLoader(vl_ds, batch_size=batch_size, shuffle=False,
                                collate_fn=recon_collate, num_workers=0)
 
-        model     = LinearModel(integration_window=32,
-                                n_in_channels=n_in).to(DEVICE)
+        # Reseed per-fold AND per-mode (see _mode_seed) so every fold gets
+        # an independent, reproducible initialization instead of
+        # inheriting whatever RNG state prior folds happened to leave
+        # behind, and so different modes sharing a fold AND an equal
+        # n_in_channels don't collide.
+        model     = _new_model(mode=mode, n_in=n_in, seed=_mode_seed(SEED + fold, mode))
         ckpt_path = os.path.join(results_dir, f"fold_{fold+1}_linear_{mode}.pt")
 
         best_r = train_model(model, tr_loader, vl_loader,
-                             epochs=epochs, ckpt_path=ckpt_path, lr=lr)
+                             epochs=epochs, ckpt_path=ckpt_path,
+                             lr=lr, weight_decay=weight_decay)
 
         print(f"\n  → Fold {fold+1} best val Pearson r: {best_r:.4f}")
         fold_results[fold + 1] = {
@@ -218,6 +256,7 @@ def run_kfold(data: dict,
     rs = [v["val_pearson_r"] for v in fold_results.values()]
     summary = {
         "model":          f"linear_{mode}",
+        "weight_decay":   weight_decay,
         "folds":          fold_results,
         "mean_pearson_r": float(np.mean(rs)),
         "std_pearson_r":  float(np.std(rs)),
@@ -243,17 +282,21 @@ def parse_args():
     p = argparse.ArgumentParser(
         description="Linear envelope reconstruction for AAD (T4)"
     )
-    p.add_argument("--local_path",  default='maestro-data',
+    p.add_argument("--local_path",   default='maestro',
                    help="Root of the MAESTRO HuggingFace dataset")
-    p.add_argument("--cache_dir",   default='cache',
+    p.add_argument("--cache_dir",    default='cache',
                    help="Cache directory for video/gaze/IMU features")
-    p.add_argument("--mode",        choices=VALID_MODES, default="eeg",
+    p.add_argument("--mode",         choices=VALID_MODES, default="eeg",
                    help="Input modality mode")
-    p.add_argument("--results",     default="results_reconstruction_test")
-    p.add_argument("--n_splits",    type=int,   default=5)
-    p.add_argument("--epochs",      type=int,   default=50)
-    p.add_argument("--batch_size",  type=int,   default=32)
-    p.add_argument("--lr",          type=float, default=1e-4)
+    p.add_argument("--results",      default="results_reconstruction")
+    p.add_argument("--n_splits",     type=int,   default=5)
+    p.add_argument("--epochs",       type=int,   default=50)
+    p.add_argument("--batch_size",   type=int,   default=32)
+    p.add_argument("--lr",           type=float, default=1e-4)
+    p.add_argument("--weight_decay", type=float, default=1e-3,
+                   help="L2 penalty on Adam, approximating ridge "
+                        "regression for the linear backward model "
+                        "(default 1e-3)")
     return p.parse_args()
 
 
@@ -267,4 +310,5 @@ if __name__ == "__main__":
                          cache_dir=args.cache_dir)
     run_kfold(data=data, results_dir=args.results, mode=args.mode,
               n_splits=args.n_splits, epochs=args.epochs,
-              batch_size=args.batch_size, lr=args.lr)
+              batch_size=args.batch_size, lr=args.lr,
+              weight_decay=args.weight_decay)

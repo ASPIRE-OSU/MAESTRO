@@ -1,0 +1,246 @@
+{
+  "eeg": {
+    "task": "hemisphere",
+    "mode": "eeg",
+    "combine": "single (no fusion)",
+    "active_modalities": [
+      "eeg"
+    ],
+    "mean_accuracy": 0.780625,
+    "std_accuracy": 0.03237958461747156
+  },
+  "gaze": {
+    "task": "hemisphere",
+    "mode": "gaze",
+    "combine": "single (no fusion)",
+    "active_modalities": [
+      "gaze"
+    ],
+    "mean_accuracy": 0.7848790311813355,
+    "std_accuracy": 0.015013460446726735
+  },
+  "imu": {
+    "task": "hemisphere",
+    "mode": "imu",
+    "combine": "single (no fusion)",
+    "active_modalities": [
+      "imu"
+    ],
+    "mean_accuracy": 0.787338708639145,
+    "std_accuracy": 0.015672676794191487
+  },
+  "video": {
+    "task": "hemisphere",
+    "mode": "video",
+    "combine": "single (no fusion)",
+    "active_modalities": [
+      "video"
+    ],
+    "mean_accuracy": 0.764375,
+    "std_accuracy": 0.008052561704203197
+  },
+  "eeg_gaze": {
+    "task": "hemisphere",
+    "mode": "eeg_gaze",
+    "combine": "learned",
+    "active_modalities": [
+      "eeg",
+      "gaze"
+    ],
+    "accuracies": [
+      0.859375,
+      0.765625,
+      0.8125,
+      0.7366771159874608,
+      0.7774294670846394
+    ],
+    "mean_accuracy": 0.7903213166144201,
+    "std_accuracy": 0.042223484662820915
+  },
+  "eeg_imu": {
+    "task": "hemisphere",
+    "mode": "eeg_imu",
+    "combine": "learned",
+    "active_modalities": [
+      "eeg",
+      "imu"
+    ],
+    "accuracies": [
+      0.7875,
+      0.76875,
+      0.8125,
+      0.7178683385579937,
+      0.7774294670846394
+    ],
+    "mean_accuracy": 0.7728095611285266,
+    "std_accuracy": 0.031136799569612374
+  },
+  "eeg_video": {
+    "task": "hemisphere",
+    "mode": "eeg_video",
+    "combine": "learned",
+    "active_modalities": [
+      "eeg",
+      "video"
+    ],
+    "accuracies": [
+      0.7875,
+      0.765625,
+      0.8125,
+      0.7429467084639498,
+      0.7774294670846394
+    ],
+    "mean_accuracy": 0.7772002351097179,
+    "std_accuracy": 0.023062962779834665
+  },
+  "gaze_imu": {
+    "task": "hemisphere",
+    "mode": "gaze_imu",
+    "combine": "learned",
+    "active_modalities": [
+      "gaze",
+      "imu"
+    ],
+    "accuracies": [
+      0.859375,
+      0.75,
+      0.796875,
+      0.7147335423197492,
+      0.7115987460815048
+    ],
+    "mean_accuracy": 0.7665164576802507,
+    "std_accuracy": 0.05570380367319291
+  },
+  "gaze_video": {
+    "task": "hemisphere",
+    "mode": "gaze_video",
+    "combine": "learned",
+    "active_modalities": [
+      "gaze",
+      "video"
+    ],
+    "accuracies": [
+      0.859375,
+      0.75,
+      0.796875,
+      0.7366771159874608,
+      0.7335423197492164
+    ],
+    "mean_accuracy": 0.7752938871473354,
+    "std_accuracy": 0.04776946114943711
+  },
+  "imu_video": {
+    "task": "hemisphere",
+    "mode": "imu_video",
+    "combine": "learned",
+    "active_modalities": [
+      "imu",
+      "video"
+    ],
+    "accuracies": [
+      0.7875,
+      0.778125,
+      0.83125,
+      0.7178683385579937,
+      0.774294670846395
+    ],
+    "mean_accuracy": 0.7778076018808777,
+    "std_accuracy": 0.036208256549387786
+  },
+  "eeg_gaze_imu": {
+    "task": "hemisphere",
+    "mode": "eeg_gaze_imu",
+    "combine": "learned",
+    "active_modalities": [
+      "eeg",
+      "gaze",
+      "imu"
+    ],
+    "accuracies": [
+      0.859375,
+      0.765625,
+      0.8125,
+      0.7147335423197492,
+      0.7774294670846394
+    ],
+    "mean_accuracy": 0.7859326018808777,
+    "std_accuracy": 0.04827757359729661
+  },
+  "eeg_gaze_video": {
+    "task": "hemisphere",
+    "mode": "eeg_gaze_video",
+    "combine": "learned",
+    "active_modalities": [
+      "eeg",
+      "gaze",
+      "video"
+    ],
+    "accuracies": [
+      0.859375,
+      0.765625,
+      0.8125,
+      0.7366771159874608,
+      0.7774294670846394
+    ],
+    "mean_accuracy": 0.7903213166144201,
+    "std_accuracy": 0.042223484662820915
+  },
+  "eeg_imu_video": {
+    "task": "hemisphere",
+    "mode": "eeg_imu_video",
+    "combine": "learned",
+    "active_modalities": [
+      "eeg",
+      "imu",
+      "video"
+    ],
+    "accuracies": [
+      0.7875,
+      0.765625,
+      0.8125,
+      0.7178683385579937,
+      0.7774294670846394
+    ],
+    "mean_accuracy": 0.7721845611285267,
+    "std_accuracy": 0.031243195080671117
+  },
+  "gaze_imu_video": {
+    "task": "hemisphere",
+    "mode": "gaze_imu_video",
+    "combine": "learned",
+    "active_modalities": [
+      "gaze",
+      "imu",
+      "video"
+    ],
+    "accuracies": [
+      0.859375,
+      0.75,
+      0.796875,
+      0.7147335423197492,
+      0.7115987460815048
+    ],
+    "mean_accuracy": 0.7665164576802507,
+    "std_accuracy": 0.05570380367319291
+  },
+  "eeg_gaze_imu_video": {
+    "task": "hemisphere",
+    "mode": "eeg_gaze_imu_video",
+    "combine": "learned",
+    "active_modalities": [
+      "eeg",
+      "gaze",
+      "imu",
+      "video"
+    ],
+    "accuracies": [
+      0.859375,
+      0.765625,
+      0.8125,
+      0.7210031347962382,
+      0.7774294670846394
+    ],
+    "mean_accuracy": 0.7871865203761755,
+    "std_accuracy": 0.04645920493885761
+  }
+}

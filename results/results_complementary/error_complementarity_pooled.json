@@ -1,0 +1,116 @@
+{
+  "eeg_vs_gaze": {
+    "mode_a": "eeg",
+    "mode_b": "gaze",
+    "n_windows": 1598,
+    "both_right": 876,
+    "both_right_pct": 54.81852315394243,
+    "only_a_right": 62,
+    "only_a_right_pct": 3.8798498122653315,
+    "only_b_right": 115,
+    "only_b_right_pct": 7.196495619524406,
+    "both_wrong": 545,
+    "both_wrong_pct": 34.10513141426784,
+    "complementary_rate_pct": 11.076345431789738,
+    "mcnemar": {
+      "method": "chi2_continuity_corrected",
+      "statistic": 15.27683615819209,
+      "p_value": 9.284814101717664e-05
+    }
+  },
+  "eeg_vs_imu": {
+    "mode_a": "eeg",
+    "mode_b": "imu",
+    "n_windows": 1598,
+    "both_right": 828,
+    "both_right_pct": 51.81476846057572,
+    "only_a_right": 110,
+    "only_a_right_pct": 6.88360450563204,
+    "only_b_right": 80,
+    "only_b_right_pct": 5.006257822277847,
+    "both_wrong": 580,
+    "both_wrong_pct": 36.29536921151439,
+    "complementary_rate_pct": 11.889862327909889,
+    "mcnemar": {
+      "method": "chi2_continuity_corrected",
+      "statistic": 4.426315789473684,
+      "p_value": 0.035388817824005825
+    }
+  },
+  "eeg_vs_video": {
+    "mode_a": "eeg",
+    "mode_b": "video",
+    "n_windows": 1598,
+    "both_right": 809,
+    "both_right_pct": 50.62578222778473,
+    "only_a_right": 129,
+    "only_a_right_pct": 8.07259073842303,
+    "only_b_right": 145,
+    "only_b_right_pct": 9.073842302878598,
+    "both_wrong": 515,
+    "both_wrong_pct": 32.22778473091364,
+    "complementary_rate_pct": 17.146433041301627,
+    "mcnemar": {
+      "method": "chi2_continuity_corrected",
+      "statistic": 0.8211678832116789,
+      "p_value": 0.3648389253991353
+    }
+  },
+  "gaze_vs_imu": {
+    "mode_a": "gaze",
+    "mode_b": "imu",
+    "n_windows": 1598,
+    "both_right": 856,
+    "both_right_pct": 53.566958698372964,
+    "only_a_right": 135,
+    "only_a_right_pct": 8.448060075093867,
+    "only_b_right": 52,
+    "only_b_right_pct": 3.254067584480601,
+    "both_wrong": 555,
+    "both_wrong_pct": 34.73091364205256,
+    "complementary_rate_pct": 11.702127659574469,
+    "mcnemar": {
+      "method": "chi2_continuity_corrected",
+      "statistic": 35.9572192513369,
+      "p_value": 2.01697680779489e-09
+    }
+  },
+  "gaze_vs_video": {
+    "mode_a": "gaze",
+    "mode_b": "video",
+    "n_windows": 1598,
+    "both_right": 839,
+    "both_right_pct": 52.50312891113892,
+    "only_a_right": 152,
+    "only_a_right_pct": 9.51188986232791,
+    "only_b_right": 115,
+    "only_b_right_pct": 7.196495619524406,
+    "both_wrong": 492,
+    "both_wrong_pct": 30.78848560700876,
+    "complementary_rate_pct": 16.708385481852314,
+    "mcnemar": {
+      "method": "chi2_continuity_corrected",
+      "statistic": 4.853932584269663,
+      "p_value": 0.02758317609368932
+    }
+  },
+  "imu_vs_video": {
+    "mode_a": "imu",
+    "mode_b": "video",
+    "n_windows": 1598,
+    "both_right": 799,
+    "both_right_pct": 50.0,
+    "only_a_right": 109,
+    "only_a_right_pct": 6.821026282853567,
+    "only_b_right": 155,
+    "only_b_right_pct": 9.699624530663328,
+    "both_wrong": 535,
+    "both_wrong_pct": 33.479349186483105,
+    "complementary_rate_pct": 16.520650813516895,
+    "mcnemar": {
+      "method": "chi2_continuity_corrected",
+      "statistic": 7.670454545454546,
+      "p_value": 0.005613231495104953
+    }
+  }
+}
