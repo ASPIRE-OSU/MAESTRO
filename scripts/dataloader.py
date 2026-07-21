@@ -376,24 +376,7 @@ def preprocess_imu(imu_raw: np.ndarray,
 
 def _load_sync(timing_path: str) -> dict:
     """
-    Load timing JSON and derive the per-modality alignment references:
-
-      align.anchor_unix / align.end_unix : read directly (precomputed,
-        authoritative) — anchor == max(eeg.first_sample_unix,
-        tobii.recording_start_unix, audio.t0_unix); end == anchor + overlap_sec.
-
-      EEG   : per-sample masking via unix(t_internal) = eeg.first_sample_unix
-              + (t_internal - eeg.t0_internal_sec), not a fixed sample-count trim.
-
-      Gaze/IMU : unix(t) = recording_start_unix + (t - t_first), so the
-              "t" value corresponding to anchor_unix is
-              t_start = (anchor_unix - recording_start_unix) + t_first.
-
-      Video : no separate *_t_first field; frame 0 assumed to correspond
-              to recording_start_unix directly.
-
-      Audio : ONE single reference time, audio.t0_unix, used for ALL
-              speakers regardless of device.
+    Load timing JSON and derive the per-modality alignment references
 
     Returns
     -------
