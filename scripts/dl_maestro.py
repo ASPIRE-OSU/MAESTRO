@@ -1,10 +1,20 @@
 """
-dl_maestro.py
+dl_dataset.py
 -------------
-Downloads the MAESTRO dataset from HuggingFace.
+Downloads the MAESTRO dataset from HuggingFace with rate limit handling.
+
+Downloads in small batches (one subject at a time) with automatic retry
+and delay between requests to stay under the free-tier rate limit.
+
 Usage
 -----
-  python dl_dataset.py --local_dir 'maestro'
+  export HF_TOKEN=hf_your_token_here
+  python dl_dataset.py --local_dir /data/maestro
+
+  # Or pass the token directly (NOT recommended for shared/committed code —
+  # prefer the HF_TOKEN environment variable so the token never ends up
+  # in shell history, scripts, or version control):
+  python dl_dataset.py --local_dir /data/maestro --token hf_your_token_here
 """
 
 import os
@@ -24,7 +34,7 @@ DELAY_RATE_LIMIT = 120
 MAX_RETRIES      = 5
 
 
-def download_pattern(pattern: str, local_dir: str,
+def download_pattern(pattern: str, local_dir: str, token: str,
                      desc: str = "") -> bool:
     """
     Download files matching a pattern with retry on rate limit.
@@ -38,6 +48,7 @@ def download_pattern(pattern: str, local_dir: str,
                 local_dir   = local_dir,
                 allow_patterns = [pattern],
                 max_workers = 1,
+                token       = token,
             )
             print(f"  ✓ {desc or pattern}")
             return True
@@ -66,24 +77,31 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--local_dir", default="maestro",
                    help="Local directory to save the dataset")
+    p.add_argument("--token",     default=None,
+                   help="HuggingFace token (or set HF_TOKEN env var)")
     p.add_argument("--subjects",  nargs="+", type=int,
                    default=list(range(1, N_SUBJECTS + 1)),
                    help="Subject numbers to download (default: all 1-16)")
     args = p.parse_args()
 
+    if not args.token:
+        print("Warning: no HuggingFace token provided. "
+              "Set --token or HF_TOKEN env var for private/gated repos.")
+
     os.makedirs(args.local_dir, exist_ok=True)
     print(f"Downloading MAESTRO to: {args.local_dir}")
     print(f"Subjects: {args.subjects}\n")
 
-    # ── Step 1: metadata + root files (small, download first) ────────────────
-    print("[ 1 / 3 ] Downloading metadata and root files...")
+    # ── Step 1: metadata + official splits + root files (small, download first) ──
+    print("[ 1 / 3 ] Downloading metadata, official splits, and root files...")
     for pattern, desc in [
         ("metadata/*",     "metadata/"),
+        ("splits/*",       "splits/ (official loso/ and within/ train-val-test splits)"),
         ("*.md",           "README.md"),
         ("LICENSE",        "LICENSE"),
         (".gitattributes", ".gitattributes"),
     ]:
-        download_pattern(pattern, args.local_dir, desc)
+        download_pattern(pattern, args.local_dir, args.token, desc)
         time.sleep(DELAY_BETWEEN)
 
     # ── Step 2: per-subject data (EEG + gaze + IMU parquet files) ─────────────
@@ -95,7 +113,7 @@ def main():
 
         for modality in ("eeg", "gaze", "imu"):
             pattern = f"data/{modality}/subject={sid}/*"
-            ok = download_pattern(pattern, args.local_dir,
+            ok = download_pattern(pattern, args.local_dir, args.token,
                                   f"  {modality}/{sid}")
             if not ok:
                 print(f"  Warning: failed to download {modality} for {sid}")
@@ -106,7 +124,7 @@ def main():
 
     # Audio is organised by trial, not by subject — download all at once
     print("  Downloading audio (all trials)...")
-    download_pattern("media/audio/*", args.local_dir, "media/audio/")
+    download_pattern("media/audio/*", args.local_dir, args.token, "media/audio/")
     time.sleep(DELAY_BETWEEN)
 
     for i, s in enumerate(args.subjects, 1):
@@ -115,7 +133,7 @@ def main():
 
         for subdir in ("video", "timing"):
             pattern = f"media/{subdir}/subject={sid}/*"
-            ok = download_pattern(pattern, args.local_dir,
+            ok = download_pattern(pattern, args.local_dir, args.token,
                                   f"  {subdir}/{sid}")
             if not ok:
                 print(f"  Warning: failed to download {subdir} for {sid}")
