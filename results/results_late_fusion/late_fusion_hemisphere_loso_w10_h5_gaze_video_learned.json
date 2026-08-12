@@ -1,0 +1,33 @@
+{
+  "task": "hemisphere",
+  "split_setting": "loso",
+  "mode": "gaze_video",
+  "window_sec": 10.0,
+  "hop_sec": 5.0,
+  "combine": "learned",
+  "active_modalities": [
+    "gaze",
+    "video"
+  ],
+  "per_fold_test_accuracy": {
+    "0": 0.66,
+    "1": 0.7473684210526316,
+    "2": 0.7,
+    "3": 0.71,
+    "4": 0.79,
+    "5": 0.67,
+    "6": 0.73,
+    "7": 0.69,
+    "8": 0.74,
+    "9": 0.78,
+    "10": 0.71,
+    "11": 0.67,
+    "12": 0.71,
+    "13": 0.7,
+    "14": 0.76,
+    "15": 0.72
+  },
+  "mean_accuracy": 0.7179605263157894,
+  "std_accuracy": 0.03698181920246144,
+  "note": "mean_accuracy computed from official-test accuracy per fold, never the inner-val score used for combiner selection."
+}

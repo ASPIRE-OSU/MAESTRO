@@ -1,7 +1,6 @@
 """
-model_classification.py
+model_classification_concat.py
 --------------------------------
-4-speaker AAD model for T1 task.
 """
 
 import torch

@@ -1,0 +1,22 @@
+{
+  "task": "aad",
+  "split_setting": "within",
+  "mode": "gaze_video",
+  "window_sec": 15.0,
+  "hop_sec": 7.5,
+  "combine": "learned",
+  "active_modalities": [
+    "gaze",
+    "video"
+  ],
+  "per_fold_test_accuracy": {
+    "0": 0.4666666666666667,
+    "1": 0.48333333333333334,
+    "2": 0.5510416666666667,
+    "3": 0.4360587002096436,
+    "4": 0.5635416666666667
+  },
+  "mean_accuracy": 0.5001284067085954,
+  "std_accuracy": 0.04923432015422565,
+  "note": "mean_accuracy computed from official-test accuracy per fold, never the inner-val score used for combiner selection."
+}

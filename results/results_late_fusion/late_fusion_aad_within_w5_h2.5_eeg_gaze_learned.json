@@ -1,0 +1,22 @@
+{
+  "task": "aad",
+  "split_setting": "within",
+  "mode": "eeg_gaze",
+  "window_sec": 5.0,
+  "hop_sec": 2.5,
+  "combine": "learned",
+  "active_modalities": [
+    "eeg",
+    "gaze"
+  ],
+  "per_fold_test_accuracy": {
+    "0": 0.47698863636363636,
+    "1": 0.5136363636363637,
+    "2": 0.5588068181818182,
+    "3": 0.3879359634076615,
+    "4": 0.46960227272727273
+  },
+  "mean_accuracy": 0.48139401086335054,
+  "std_accuracy": 0.05643610740695715,
+  "note": "mean_accuracy computed from official-test accuracy per fold, never the inner-val score used for combiner selection."
+}

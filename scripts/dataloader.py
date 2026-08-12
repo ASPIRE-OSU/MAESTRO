@@ -1,8 +1,6 @@
 """
 dataloader.py
 -------------
-Loads, synchronises, preprocesses and windows EEG + audio + video + gaze + IMU
-for 4-speaker AAD. Built on top of the new HuggingFace dataset format.
 """
 
 from __future__ import annotations
@@ -35,12 +33,6 @@ N_GAZE_CH   = 6
 N_IMU_CH    = 6
 N_SPEAKERS  = 4
 
-# ── mode / modality registry ────────────────────────────────────────────────────
-# Canonical mode -> {active modalities} mapping. All other files should
-# call mode_uses(mode) rather than re-deriving this themselves.
-#
-# Canonical names use full underscored modality lists in a fixed order
-# (eeg, gaze, imu, video).
 
 MODE_MODALITIES = {
     # singles (4)
@@ -64,12 +56,13 @@ MODE_MODALITIES = {
     "eeg_gaze_imu_video": {"eeg", "gaze", "imu", "video"},
 }
 
-# Backward-compatible short aliases -> canonical name
+
 MODE_ALIASES = {
     "gi":       "gaze_imu",
     "eeg_vg":   "eeg_gaze_video",
     "eeg_vgi":  "eeg_gaze_imu_video",
 }
+
 
 VALID_MODES = tuple(MODE_MODALITIES.keys()) + tuple(MODE_ALIASES.keys())
 
@@ -149,11 +142,7 @@ def _interp_grid(ts: np.ndarray, vals: np.ndarray,
 # ── EEG bad-channel detection ──────────────────────────────────────────────────
 
 def _detect_bad_channels(eeg_tc: np.ndarray, ch_names: list) -> list:
-    """
-    Lightweight bad-channel detection: flat, saturated, or variance-outlier
-    channels. eeg_tc is (T, C) time-first. Returns sorted list of bad channel
-    names.
-    """
+
     data = eeg_tc.T   # (C, T) for per-channel statistics
     stds = data.std(axis=1)
     sat  = (np.abs(data) >= ADC_CLIP).mean(axis=1)
@@ -239,13 +228,7 @@ def filter_reference_eeg(eeg_raw: np.ndarray,
 def preprocess_eeg(eeg_raw: np.ndarray,
                    ch_names: list,
                    fs_in: int = EEG_FS_RAW) -> np.ndarray:
-    """
-    Convenience wrapper: filter_reference_eeg() + resample to TARGET_FS.
-    Kept for any external callers expecting the old single-call interface;
-    load_trial() calls filter_reference_eeg() and _resample() separately
-    so filtering can happen on the full trial BEFORE masking to the
-    anchor-end alignment window.
-    """
+
     eeg = filter_reference_eeg(eeg_raw, ch_names, fs_in)
     return _resample(eeg, fs_in, TARGET_FS)
 
@@ -254,9 +237,15 @@ def preprocess_eeg(eeg_raw: np.ndarray,
 
 # ── audio envelope ─────────────────────────────────────────────────────────────
 
-def extract_envelope(audio: np.ndarray, fs_in: int = AUDIO_FS_RAW) -> np.ndarray:
-    """Hilbert, LP 20 Hz, downsample, z-score. Returns (T, 1)."""
-    env = np.abs(hilbert(audio.astype(np.float64))).astype(np.float32)
+def extract_envelope(audio: np.ndarray, fs_in: int = AUDIO_FS_RAW,
+                     target_rms: float | None = None) -> np.ndarray:
+
+    audio = audio.astype(np.float64)
+    if target_rms is not None:
+        current_rms = np.sqrt(np.mean(audio ** 2)) + 1e-8
+        audio = audio * (target_rms / current_rms)
+
+    env = np.abs(hilbert(audio)).astype(np.float32)
     sos = _butter_lp(20.0, fs_in)
     env = sosfiltfilt(sos, env).astype(np.float32)
     env = _resample(env, fs_in, TARGET_FS)
@@ -268,8 +257,7 @@ def extract_envelope(audio: np.ndarray, fs_in: int = AUDIO_FS_RAW) -> np.ndarray
 def extract_optical_flow(video_path: str,
                          t_start: float,
                          t_end: float) -> np.ndarray:
-    """Farneback dense optical flow, 4 features/frame, resample to 64 Hz.
-    Returns (T_out, 4) float32."""
+
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
     start_frame = max(0, int(t_start * fps) - 1)
@@ -311,9 +299,7 @@ def preprocess_gaze(gaze_raw: np.ndarray,
                     t_sec: np.ndarray,
                     t_start: float,
                     t_end: float) -> np.ndarray:
-    """Interpolate gaze to 64 Hz grid, LP 10 Hz, z-score. Returns (T, C).
-    NaN values are handled per channel by dropping invalid samples before
-    interpolation."""
+
     mask = (t_sec >= t_start - 0.1) & (t_sec <= t_end + 0.1)
     ts, vals = t_sec[mask], gaze_raw[mask]
     n_out = int((t_end - t_start) * TARGET_FS)
@@ -343,9 +329,7 @@ def preprocess_imu(imu_raw: np.ndarray,
                    t_sec: np.ndarray,
                    t_start: float,
                    t_end: float) -> np.ndarray:
-    """Interpolate IMU, resample to 64 Hz, LP 20 Hz, z-score. Returns (T, C).
-    NaN values are handled per channel by dropping invalid samples before
-    interpolation."""
+
     mask = (t_sec >= t_start - 0.1) & (t_sec <= t_end + 0.1)
     ts, vals = t_sec[mask], imu_raw[mask]
     n_out = int((t_end - t_start) * TARGET_FS)
@@ -375,15 +359,6 @@ def preprocess_imu(imu_raw: np.ndarray,
 # ── sync helper ────────────────────────────────────────────────────────────────
 
 def _load_sync(timing_path: str) -> dict:
-    """
-    Load timing JSON and derive the per-modality alignment references
-
-    Returns
-    -------
-    dict with anchor_unix, end_unix, trial_end_sec,
-             eeg_first_sample_unix, eeg_t0_internal_sec,
-             gaze_trim_sec, imu_trim_sec, video_trim_sec, audio_t0_unix
-    """
     with open(timing_path) as f:
         t = json.load(f)
 
@@ -399,6 +374,14 @@ def _load_sync(timing_path: str) -> dict:
 
     trial_end_sec = align.get("overlap_sec", end_unix - anchor_unix)
 
+    RAW_TO_LOGICAL_DEVICE = {6: 1, 5: 2, 3: 3}
+    audio_device_t0 = {
+        RAW_TO_LOGICAL_DEVICE.get(d["device_id_raw"], d["device_id_raw"]):
+            d["playback_start_unix"]
+        for d in t["audio"].get("devices", [])
+        if "device_id_raw" in d and "playback_start_unix" in d
+    }
+
     return {
         "anchor_unix":            anchor_unix,
         "end_unix":               end_unix,
@@ -408,7 +391,8 @@ def _load_sync(timing_path: str) -> dict:
         "gaze_trim_sec":          gaze_trim_sec,
         "imu_trim_sec":           imu_trim_sec,
         "video_trim_sec":         video_trim_sec,
-        "audio_t0_unix":          t["audio"]["t0_unix"],
+        "audio_t0_unix":          t["audio"]["t0_unix"],   # fallback
+        "audio_device_t0":       audio_device_t0,          # NEW
     }
 
 
@@ -449,25 +433,9 @@ def load_trial(local_path: str,
                audio_layout: list,
                attended_speaker: int,
                mode: str,
-               cache_dir: str | None = None) -> dict | None:
-    """
-    Load and preprocess one trial from the new dataset format.
-
-    Parameters
-    ----------
-    local_path       : root of dataset (contains metadata/, data/, media/)
-    sid              : subject ID e.g. "S01"
-    tid              : trial ID e.g. "eval_001"
-    audio_layout     : list of {speaker, filename, azimuth_deg} from audio_layout.json
-    attended_speaker : 1-based attended speaker index
-    mode             : one of VALID_MODES (canonical or legacy alias)
-    cache_dir        : optional cache directory for video/gaze/IMU
-
-    Returns
-    -------
-    dict: eeg, video, gaze, imu, audio (list of 4), att_idxs
-    All arrays: (n_win, WINDOW_SAMP, C). None on failure.
-    """
+               cache_dir: str | None = None,
+               window_sec: float = WINDOW_SEC,
+               hop_sec: float | None = None) -> dict | None:
     root = Path(local_path)
 
     use_eeg, use_gaze, use_imu, use_video = mode_uses(mode)
@@ -490,11 +458,6 @@ def load_trial(local_path: str,
     video_trim_sec = sync["video_trim_sec"]
     trial_end_sec  = sync["trial_end_sec"]
 
-    # ── EEG ───────────────────────────────────────────────────────────────────
-    # Cached alongside video/gaze/IMU in the same per-(subject,trial) .npz.
-    # Every EEG sample's own recorded
-    # "t_sec" is converted to unix time and masked to [anchor, anchor+dur],
-    # with filtering applied to the full unmasked recording BEFORE masking.
     eeg_proc = None
     eeg_cpath = (os.path.join(cache_dir, f"{sid}_{tid}.npz")
                 if cache_dir else None)
@@ -521,10 +484,6 @@ def load_trial(local_path: str,
             mask     = (eeg_unix >= anchor_unix) & \
                       (eeg_unix <= anchor_unix + trial_end_sec)
 
-            # Filter/notch/reference the FULL unmasked trial recording
-            # first, so sosfiltfilt/filtfilt edge transients land outside the
-            # anchor-end window rather than inside it. Mask AFTER
-            # filtering (and z-scoring), then resample.
             eeg_filtered = filter_reference_eeg(eeg_raw, ch_names, EEG_FS_RAW)
             eeg_proc     = _resample(eeg_filtered[mask], EEG_FS_RAW, TARGET_FS)
 
@@ -534,19 +493,29 @@ def load_trial(local_path: str,
             print(f"  Skipping {sid}/{tid}: EEG error: {e}")
             return None
 
-    # ── Audio envelopes ───────────────────────────────────────────────────────
-    # ONE shared reference time
-    # (audio.t0_unix) is used for every speaker's waveform.
-    audio_dir = root / "media" / "audio" / tid
-    audio_t0  = sync["audio_t0_unix"]
+    audio_dir       = root / "media" / "audio" / tid
+    audio_t0_shared = sync["audio_t0_unix"]
+    audio_device_t0 = sync.get("audio_device_t0", {})
     envs = []
     try:
         attendable = sorted(
             [spk for spk in audio_layout if spk.get("attendable", True)],
             key=lambda x: x["speaker"]
         )
+
+        raw_waveforms = []
         for spk in attendable:
             spk_n   = spk["speaker"]
+            dev_id  = spk.get("device")
+            audio_t0 = audio_device_t0.get(dev_id, audio_t0_shared)
+            if dev_id is not None and dev_id not in audio_device_t0 and audio_device_t0:
+                print(f"  WARNING {sid}/{tid}: speaker {spk_n}'s device={dev_id} "
+                      f"not found in translated audio_device_t0 keys "
+                      f"{list(audio_device_t0.keys())} -- falling back to "
+                      f"shared audio_t0_unix. This should be rare; if you see "
+                      f"this often, the inferred RAW_TO_LOGICAL_DEVICE mapping "
+                      f"in _load_sync() may not hold for this trial/subject.")
+
             matches = sorted(audio_dir.glob(f"speaker{spk_n}_*.flac"))
             if not matches:
                 raise FileNotFoundError(
@@ -555,9 +524,15 @@ def load_trial(local_path: str,
 
             i0 = max(0, int(round((anchor_unix - audio_t0) * sr)))
             i1 = int(round((anchor_unix + trial_end_sec - audio_t0) * sr))
-            wav = wav[i0:i1]
+            raw_waveforms.append((wav[i0:i1], sr))
 
-            envs.append(extract_envelope(wav, sr))
+        trial_target_rms = float(np.mean([
+            np.sqrt(np.mean(w.astype(np.float64) ** 2)) for w, _ in raw_waveforms
+        ]))
+
+        # Second pass: envelope extraction, equalized to the shared trial target.
+        for wav, sr in raw_waveforms:
+            envs.append(extract_envelope(wav, sr, target_rms=trial_target_rms))
     except Exception as e:
         print(f"  Skipping {sid}/{tid}: audio error: {e}")
         return None
@@ -651,21 +626,36 @@ def load_trial(local_path: str,
     if gaze_proc  is not None: gaze_proc  = gaze_proc[:min_len]
     if imu_proc   is not None: imu_proc   = imu_proc[:min_len]
 
-    # ── Pad to full window if within 1s ───────────────────────────────────────
-    pad_to = ((min_len + WINDOW_SAMP - 1) // WINDOW_SAMP) * WINDOW_SAMP
+    # ── Windowing (configurable size/overlap) ─────────────────────────────────
+    hop_sec_eff  = hop_sec if hop_sec is not None else window_sec
+    window_samp  = int(round(window_sec * TARGET_FS))
+    hop_samp     = int(round(hop_sec_eff * TARGET_FS))
+    if window_samp <= 0 or hop_samp <= 0:
+        print(f"  Skipping {sid}/{tid}: invalid window_sec/hop_sec "
+              f"({window_sec}/{hop_sec_eff})")
+        return None
+
+    pad_to = ((min_len + window_samp - 1) // window_samp) * window_samp
     if pad_to - min_len <= TARGET_FS:
         min_len = pad_to
-    n_win = min_len // WINDOW_SAMP
+    if min_len < window_samp:
+        return None
+
+    starts = list(range(0, min_len - window_samp + 1, hop_samp))
+    n_win  = len(starts)
     if n_win == 0:
         return None
 
     def _win(x, C):
         if x is None:
             return None
-        if len(x) < n_win * WINDOW_SAMP:
-            pad = np.zeros((n_win * WINDOW_SAMP - len(x), C), dtype=np.float32)
+        if len(x) < min_len:
+            pad = np.zeros((min_len - len(x), C), dtype=np.float32)
             x   = np.concatenate([x, pad], axis=0)
-        return x[:n_win * WINDOW_SAMP].reshape(n_win, WINDOW_SAMP, C)
+        out = np.zeros((n_win, window_samp, C), dtype=np.float32)
+        for i, s in enumerate(starts):
+            out[i] = x[s:s + window_samp]
+        return out
 
     return {
         "eeg":      _win(eeg_proc,   N_EEG_CH),
@@ -683,15 +673,9 @@ def build_dataset(local_path: str,
                   mode: str,
                   subjects: list | str = "all",
                   trials: str = "main",
-                  cache_dir: str | None = None) -> dict:
-    """
-    Build the full pooled dataset dict for a given mode.
-
-    Returns
-    -------
-    dict: eeg, video, gaze, imu, audio (list of 4 arrays),
-          att_idxs, trial_ids, trial_meta_ids, trial_meta_att_idx
-    """
+                  cache_dir: str | None = None,
+                  window_sec: float = WINDOW_SEC,
+                  hop_sec: float | None = None) -> dict:
     assert mode in VALID_MODES, f"mode must be one of {VALID_MODES}"
     root = Path(local_path)
 
@@ -730,6 +714,8 @@ def build_dataset(local_path: str,
                 audio_layout    = audio_layout,
                 attended_speaker= att_spk,
                 mode            = mode,
+                window_sec      = window_sec,
+                hop_sec         = hop_sec,
                 cache_dir       = cache_dir,
             )
             if result is None:
@@ -746,7 +732,9 @@ def build_dataset(local_path: str,
             all_trial_ids.append(
                 np.full(n_win, tid_ctr, dtype=np.int64))
             trial_meta.append({"trial_id": tid_ctr,
-                                "att_idx":  att_spk - 1})
+                                "att_idx":  att_spk - 1,
+                                "subject":  s,        # NEW
+                                "tid":      tid})     # NEW — original content ID
             tid_ctr += 1
 
         print(f"Subject {s}: loaded")
@@ -770,6 +758,10 @@ def build_dataset(local_path: str,
                                         dtype=np.int64),
         "trial_meta_att_idx": np.array([t["att_idx"]  for t in trial_meta],
                                         dtype=np.int64),
+        "trial_meta_subject": np.array([t["subject"]  for t in trial_meta],
+                                        dtype=np.int64),   # NEW
+        "trial_meta_tid":     np.array([t["tid"]       for t in trial_meta],
+                                        dtype=object),      # NEW
     }
 
     n_windows = len(dataset["audio"][0])
@@ -783,25 +775,151 @@ def build_dataset(local_path: str,
 
 # ── K-fold splitting ───────────────────────────────────────────────────────────
 
-def get_trial_level_splits(data: dict, n_splits: int = 5, seed: int = 42):
-    """Stratified K-fold at trial level, balanced on attended speaker."""
-    from sklearn.model_selection import StratifiedKFold
-    trial_ids = data["trial_meta_ids"]
-    trial_att = data["trial_meta_att_idx"]
-    skf       = StratifiedKFold(n_splits=n_splits, shuffle=True,
-                                random_state=seed)
-    win_ids   = data["trial_ids"]
-    for fold, (tr_t, vl_t) in enumerate(skf.split(trial_ids, trial_att)):
-        yield (fold,
-               np.where(np.isin(win_ids, trial_ids[tr_t]))[0],
-               np.where(np.isin(win_ids, trial_ids[vl_t]))[0])
+def get_trial_level_splits(data: dict, n_splits: int = 5, seed: int = 42,
+                           held_out_content_frac: float = 0.2):
+
+    from sklearn.model_selection import StratifiedGroupKFold, train_test_split
+
+    trial_ids  = data["trial_meta_ids"]
+    trial_att  = data["trial_meta_att_idx"]
+    trial_subj = data["trial_meta_subject"]
+    trial_tid  = data["trial_meta_tid"]
+    win_ids    = data["trial_ids"]
+
+    # ── Step 1: global trial-CONTENT holdout, computed ONCE ─────────────────
+    unique_content = np.unique(trial_tid)
+    content_att = np.array([trial_att[trial_tid == c][0] for c in unique_content])
+    train_content, heldout_content = train_test_split(
+        unique_content, test_size=held_out_content_frac,
+        stratify=content_att, random_state=seed)
+    train_content_set   = set(train_content.tolist())
+    heldout_content_set = set(heldout_content.tolist())
+    is_train_content   = np.array([t in train_content_set   for t in trial_tid])
+    is_heldout_content = np.array([t in heldout_content_set for t in trial_tid])
+
+    # ── Step 2: subject-grouped K-fold on top ───────────────────────────────
+    sgkf = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+    for fold, (tr_t, vl_t) in enumerate(
+            sgkf.split(trial_ids, trial_att, groups=trial_subj)):
+        train_trial_ids = set(trial_ids[tr_t].tolist())
+        val_trial_ids   = set(trial_ids[vl_t].tolist())
+
+        win_trial_lookup = np.searchsorted(trial_ids, win_ids)
+
+        # Train windows: train-side subjects AND non-held-out content
+        train_mask = (np.isin(win_ids, list(train_trial_ids)) &
+                     is_train_content[win_trial_lookup])
+        # Val windows: val-side subjects AND held-out content only
+        val_mask = (np.isin(win_ids, list(val_trial_ids)) &
+                   is_heldout_content[win_trial_lookup])
+
+        yield fold, np.where(train_mask)[0], np.where(val_mask)[0]
+
+
+def carve_inner_val(data: dict, window_idx: np.ndarray,
+                    val_frac: float = 0.2, seed: int = 42) -> tuple:
+
+    subj_lookup = data["trial_meta_subject"][
+        np.searchsorted(data["trial_meta_ids"], data["trial_ids"][window_idx])]
+    unique_subjects = np.unique(subj_lookup)
+
+    rng = np.random.default_rng(seed)
+    n_val_subj = max(1, int(round(val_frac * len(unique_subjects))))
+    val_subjects = set(rng.choice(unique_subjects, size=n_val_subj,
+                                  replace=False).tolist())
+
+    is_val = np.isin(subj_lookup, list(val_subjects))
+    inner_val_idx   = window_idx[is_val]
+    inner_train_idx = window_idx[~is_val]
+    return inner_train_idx, inner_val_idx
+
+
+def load_official_splits(splits_dir: str, setting: str) -> list:
+
+    import json as _json
+    from pathlib import Path as _Path
+
+    setting_dir = _Path(splits_dir) / setting
+    fold_files = sorted(setting_dir.glob("fold_*.json"))
+    if not fold_files:
+        raise FileNotFoundError(
+            f"No fold_*.json files found in {setting_dir}. "
+            f"Expected the dataset's splits/{setting}/ folder.")
+
+    folds = []
+    for f in fold_files:
+        with open(f) as fh:
+            folds.append(_json.load(fh))
+    folds.sort(key=lambda d: d["fold"])
+    return folds
+
+
+def get_official_split_windows(data: dict, fold: dict) -> tuple:
+
+    setting = fold["setting"]
+    win_trial_lookup = np.searchsorted(data["trial_meta_ids"], data["trial_ids"])
+
+    if setting == "loso":
+        # Subject IDs in the split files are strings like "S01"; data's
+        # trial_meta_subject is an int (e.g. 1) — convert consistently.
+        test_subj_ints  = {int(s.lstrip("S")) for s in fold["test_subjects"]}
+        train_subj_ints = {int(s.lstrip("S")) for s in fold["train_subjects"]}
+
+        subj_per_win = data["trial_meta_subject"][win_trial_lookup]
+        train_idx = np.where(np.isin(subj_per_win, list(train_subj_ints)))[0]
+        test_idx  = np.where(np.isin(subj_per_win, list(test_subj_ints)))[0]
+
+    elif setting == "intra":
+        test_content_set  = set(fold["test_trials"])
+        train_content_set = set(fold["train_trials"])
+
+        content_per_win = data["trial_meta_tid"][win_trial_lookup]
+        train_idx = np.where(np.isin(content_per_win, list(train_content_set)))[0]
+        test_idx  = np.where(np.isin(content_per_win, list(test_content_set)))[0]
+
+    else:
+        raise ValueError(f"Unknown official split setting: {setting}")
+
+    return train_idx, test_idx
+
+
+def compute_global_content_holdout(data: dict, held_out_content_frac: float = 0.2,
+                                   seed: int = 42) -> tuple:
+
+    from sklearn.model_selection import train_test_split
+
+    unique_content = np.unique(data["trial_meta_tid"])
+    content_att = np.array([
+        data["trial_meta_att_idx"][data["trial_meta_tid"] == c][0]
+        for c in unique_content
+    ])
+    train_content, heldout_content = train_test_split(
+        unique_content, test_size=held_out_content_frac,
+        stratify=content_att, random_state=seed)
+    return set(train_content.tolist()), set(heldout_content.tolist())
+
+
+def carve_inner_val_content(data: dict, window_idx: np.ndarray,
+                            val_frac: float = 0.2, seed: int = 42) -> tuple:
+
+    content_lookup = data["trial_meta_tid"][
+        np.searchsorted(data["trial_meta_ids"], data["trial_ids"][window_idx])]
+    unique_content = np.unique(content_lookup)
+
+    rng = np.random.default_rng(seed)
+    n_val_content = max(1, int(round(val_frac * len(unique_content))))
+    val_content = set(rng.choice(unique_content, size=n_val_content,
+                                 replace=False).tolist())
+
+    is_val = np.isin(content_lookup, list(val_content))
+    inner_val_idx   = window_idx[is_val]
+    inner_train_idx = window_idx[~is_val]
+    return inner_train_idx, inner_val_idx
 
 
 # ── PyTorch Dataset ────────────────────────────────────────────────────────────
 
 class AADDataset(Dataset):
-    """AAD Dataset with optional EEG, video, gaze, IMU.
-    Speaker order randomised during training."""
 
     def __init__(self, data: dict, window_idx: np.ndarray,
                  train: bool = True):

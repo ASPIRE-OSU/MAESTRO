@@ -1,0 +1,33 @@
+{
+  "task": "hemisphere",
+  "split_setting": "loso",
+  "mode": "imu_video",
+  "window_sec": 30.0,
+  "hop_sec": 15.0,
+  "combine": "learned",
+  "active_modalities": [
+    "imu",
+    "video"
+  ],
+  "per_fold_test_accuracy": {
+    "0": 0.65,
+    "1": 0.7894736842105263,
+    "2": 0.7,
+    "3": 0.55,
+    "4": 0.8,
+    "5": 0.75,
+    "6": 0.75,
+    "7": 0.6,
+    "8": 0.75,
+    "9": 0.65,
+    "10": 0.65,
+    "11": 0.7,
+    "12": 0.55,
+    "13": 0.75,
+    "14": 0.7,
+    "15": 0.75
+  },
+  "mean_accuracy": 0.6930921052631579,
+  "std_accuracy": 0.07592843506020995,
+  "note": "mean_accuracy computed from official-test accuracy per fold, never the inner-val score used for combiner selection."
+}

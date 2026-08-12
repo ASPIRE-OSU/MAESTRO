@@ -1,0 +1,33 @@
+{
+  "task": "eccentricity",
+  "split_setting": "loso",
+  "mode": "gaze_imu",
+  "window_sec": 30.0,
+  "hop_sec": 15.0,
+  "combine": "learned",
+  "active_modalities": [
+    "gaze",
+    "imu"
+  ],
+  "per_fold_test_accuracy": {
+    "0": 0.7,
+    "1": 0.6842105263157895,
+    "2": 0.7,
+    "3": 0.7,
+    "4": 0.65,
+    "5": 0.55,
+    "6": 0.65,
+    "7": 0.55,
+    "8": 0.55,
+    "9": 0.65,
+    "10": 0.7,
+    "11": 0.55,
+    "12": 0.6,
+    "13": 0.65,
+    "14": 0.7,
+    "15": 0.7
+  },
+  "mean_accuracy": 0.6427631578947369,
+  "std_accuracy": 0.06012092500343532,
+  "note": "mean_accuracy computed from official-test accuracy per fold, never the inner-val score used for combiner selection."
+}

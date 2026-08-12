@@ -1,0 +1,33 @@
+{
+  "task": "hemisphere",
+  "split_setting": "loso",
+  "mode": "eeg_gaze",
+  "window_sec": 5.0,
+  "hop_sec": 2.5,
+  "combine": "learned",
+  "active_modalities": [
+    "eeg",
+    "gaze"
+  ],
+  "per_fold_test_accuracy": {
+    "0": 0.7181818181818181,
+    "1": 0.6842105263157895,
+    "2": 0.6954545454545454,
+    "3": 0.7,
+    "4": 0.65,
+    "5": 0.6909090909090909,
+    "6": 0.6772727272727272,
+    "7": 0.6818181818181818,
+    "8": 0.7045454545454546,
+    "9": 0.7454545454545455,
+    "10": 0.7181818181818181,
+    "11": 0.7181818181818181,
+    "12": 0.7363636363636363,
+    "13": 0.7045454545454546,
+    "14": 0.7363636363636363,
+    "15": 0.6772727272727272
+  },
+  "mean_accuracy": 0.7024222488038278,
+  "std_accuracy": 0.02483215487603088,
+  "note": "mean_accuracy computed from official-test accuracy per fold, never the inner-val score used for combiner selection."
+}

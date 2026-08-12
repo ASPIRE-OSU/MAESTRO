@@ -1,0 +1,174 @@
+{
+  "task": "aad",
+  "split_setting": "loso",
+  "window_sec": 10.0,
+  "hop_sec": 5.0,
+  "combine": "learned",
+  "n_bins": 4,
+  "bin_edges": [
+    2.999999,
+    10.0,
+    12.0,
+    14.0,
+    18.000001
+  ],
+  "modes_run": [
+    "eeg",
+    "gaze",
+    "imu",
+    "video",
+    "gaze_video"
+  ],
+  "results": {
+    "eeg": {
+      "0": {
+        "bin_range": "3.0 to 10.0 dB",
+        "mean_accuracy": 0.1925,
+        "std_accuracy": 0.042938910093294175,
+        "n_folds": 16,
+        "n_windows_total": 400
+      },
+      "1": {
+        "bin_range": "10.0 to 12.0 dB",
+        "mean_accuracy": 0.35624999999999996,
+        "std_accuracy": 0.050988492710501744,
+        "n_folds": 16,
+        "n_windows_total": 235
+      },
+      "2": {
+        "bin_range": "12.0 to 14.0 dB",
+        "mean_accuracy": 0.4895833333333333,
+        "std_accuracy": 0.06315627663010048,
+        "n_folds": 16,
+        "n_windows_total": 480
+      },
+      "3": {
+        "bin_range": "14.0 to 18.0 dB",
+        "mean_accuracy": 0.8333333333333334,
+        "std_accuracy": 0.07264831572567791,
+        "n_folds": 16,
+        "n_windows_total": 480
+      }
+    },
+    "gaze": {
+      "0": {
+        "bin_range": "3.0 to 10.0 dB",
+        "mean_accuracy": 0.1975,
+        "std_accuracy": 0.051901348730066736,
+        "n_folds": 16,
+        "n_windows_total": 400
+      },
+      "1": {
+        "bin_range": "10.0 to 12.0 dB",
+        "mean_accuracy": 0.36041666666666666,
+        "std_accuracy": 0.04597515935565399,
+        "n_folds": 16,
+        "n_windows_total": 235
+      },
+      "2": {
+        "bin_range": "12.0 to 14.0 dB",
+        "mean_accuracy": 0.5125,
+        "std_accuracy": 0.05384519993050035,
+        "n_folds": 16,
+        "n_windows_total": 480
+      },
+      "3": {
+        "bin_range": "14.0 to 18.0 dB",
+        "mean_accuracy": 0.8583333333333334,
+        "std_accuracy": 0.06508541396588881,
+        "n_folds": 16,
+        "n_windows_total": 480
+      }
+    },
+    "imu": {
+      "0": {
+        "bin_range": "3.0 to 10.0 dB",
+        "mean_accuracy": 0.195,
+        "std_accuracy": 0.052678268764263694,
+        "n_folds": 16,
+        "n_windows_total": 400
+      },
+      "1": {
+        "bin_range": "10.0 to 12.0 dB",
+        "mean_accuracy": 0.3645833333333333,
+        "std_accuracy": 0.0463512405443479,
+        "n_folds": 16,
+        "n_windows_total": 235
+      },
+      "2": {
+        "bin_range": "12.0 to 14.0 dB",
+        "mean_accuracy": 0.50625,
+        "std_accuracy": 0.059182802963924114,
+        "n_folds": 16,
+        "n_windows_total": 480
+      },
+      "3": {
+        "bin_range": "14.0 to 18.0 dB",
+        "mean_accuracy": 0.8520833333333333,
+        "std_accuracy": 0.07067998105703074,
+        "n_folds": 16,
+        "n_windows_total": 480
+      }
+    },
+    "video": {
+      "0": {
+        "bin_range": "3.0 to 10.0 dB",
+        "mean_accuracy": 0.23250000000000004,
+        "std_accuracy": 0.05517019122678478,
+        "n_folds": 16,
+        "n_windows_total": 400
+      },
+      "1": {
+        "bin_range": "10.0 to 12.0 dB",
+        "mean_accuracy": 0.38125000000000003,
+        "std_accuracy": 0.04995657836784084,
+        "n_folds": 16,
+        "n_windows_total": 235
+      },
+      "2": {
+        "bin_range": "12.0 to 14.0 dB",
+        "mean_accuracy": 0.50625,
+        "std_accuracy": 0.04443901876604487,
+        "n_folds": 16,
+        "n_windows_total": 480
+      },
+      "3": {
+        "bin_range": "14.0 to 18.0 dB",
+        "mean_accuracy": 0.83125,
+        "std_accuracy": 0.06063180087856355,
+        "n_folds": 16,
+        "n_windows_total": 480
+      }
+    },
+    "gaze_video": {
+      "0": {
+        "bin_range": "3.0 to 10.0 dB",
+        "mean_accuracy": 0.21000000000000002,
+        "std_accuracy": 0.05196152422706632,
+        "n_folds": 16,
+        "n_windows_total": 400
+      },
+      "1": {
+        "bin_range": "10.0 to 12.0 dB",
+        "mean_accuracy": 0.36458333333333337,
+        "std_accuracy": 0.05199993322645287,
+        "n_folds": 16,
+        "n_windows_total": 235
+      },
+      "2": {
+        "bin_range": "12.0 to 14.0 dB",
+        "mean_accuracy": 0.50625,
+        "std_accuracy": 0.051664986531821847,
+        "n_folds": 16,
+        "n_windows_total": 480
+      },
+      "3": {
+        "bin_range": "14.0 to 18.0 dB",
+        "mean_accuracy": 0.8270833333333333,
+        "std_accuracy": 0.05030290194854016,
+        "n_folds": 16,
+        "n_windows_total": 480
+      }
+    }
+  }
+}

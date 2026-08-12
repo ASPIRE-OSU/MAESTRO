@@ -1,0 +1,22 @@
+{
+  "task": "aad",
+  "split_setting": "within",
+  "mode": "eeg_imu",
+  "window_sec": 10.0,
+  "hop_sec": 5.0,
+  "combine": "learned",
+  "active_modalities": [
+    "eeg",
+    "imu"
+  ],
+  "per_fold_test_accuracy": {
+    "0": 0.46,
+    "1": 0.56,
+    "2": 0.61,
+    "3": 0.39245283018867927,
+    "4": 0.579375
+  },
+  "mean_accuracy": 0.5203655660377358,
+  "std_accuracy": 0.08135478223096435,
+  "note": "mean_accuracy computed from official-test accuracy per fold, never the inner-val score used for combiner selection."
+}

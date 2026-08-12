@@ -1,0 +1,34 @@
+{
+  "task": "aad",
+  "split_setting": "loso",
+  "mode": "eeg_gaze_imu",
+  "window_sec": 20.0,
+  "hop_sec": 10.0,
+  "combine": "learned",
+  "active_modalities": [
+    "eeg",
+    "gaze",
+    "imu"
+  ],
+  "per_fold_test_accuracy": {
+    "0": 0.4,
+    "1": 0.5789473684210527,
+    "2": 0.55,
+    "3": 0.5,
+    "4": 0.45,
+    "5": 0.45,
+    "6": 0.55,
+    "7": 0.45,
+    "8": 0.5,
+    "9": 0.35,
+    "10": 0.45,
+    "11": 0.5,
+    "12": 0.55,
+    "13": 0.45,
+    "14": 0.45,
+    "15": 0.55
+  },
+  "mean_accuracy": 0.4830592105263158,
+  "std_accuracy": 0.06079722516938089,
+  "note": "mean_accuracy computed from official-test accuracy per fold, never the inner-val score used for combiner selection."
+}

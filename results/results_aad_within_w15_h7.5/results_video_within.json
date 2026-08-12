@@ -1,0 +1,75 @@
+{
+  "mode": "Video only",
+  "split_setting": "within",
+  "folds": {
+    "0": {
+      "test_accuracy": 0.45,
+      "best_inner_val_acc": 0.66796875,
+      "n_inner_train_windows": 3072,
+      "n_inner_val_windows": 768,
+      "n_test_windows": 960,
+      "test_speaker_dist": {
+        "0": 240,
+        "1": 240,
+        "2": 240,
+        "3": 240
+      }
+    },
+    "1": {
+      "test_accuracy": 0.5166666666666667,
+      "best_inner_val_acc": 0.4661458333333333,
+      "n_inner_train_windows": 3072,
+      "n_inner_val_windows": 768,
+      "n_test_windows": 960,
+      "test_speaker_dist": {
+        "0": 240,
+        "1": 240,
+        "2": 240,
+        "3": 240
+      }
+    },
+    "2": {
+      "test_accuracy": 0.5020833333333333,
+      "best_inner_val_acc": 0.5625,
+      "n_inner_train_windows": 3072,
+      "n_inner_val_windows": 768,
+      "n_test_windows": 960,
+      "test_speaker_dist": {
+        "0": 240,
+        "1": 240,
+        "2": 240,
+        "3": 240
+      }
+    },
+    "3": {
+      "test_accuracy": 0.43333333333333335,
+      "best_inner_val_acc": 0.6875,
+      "n_inner_train_windows": 3072,
+      "n_inner_val_windows": 768,
+      "n_test_windows": 960,
+      "test_speaker_dist": {
+        "0": 240,
+        "1": 240,
+        "2": 240,
+        "3": 240
+      }
+    },
+    "4": {
+      "test_accuracy": 0.48333333333333334,
+      "best_inner_val_acc": 0.5221354166666666,
+      "n_inner_train_windows": 3072,
+      "n_inner_val_windows": 768,
+      "n_test_windows": 960,
+      "test_speaker_dist": {
+        "0": 240,
+        "1": 240,
+        "2": 240,
+        "3": 240
+      }
+    }
+  },
+  "mean_accuracy": 0.4770833333333333,
+  "std_accuracy": 0.031236108023318856,
+  "chance_level": 0.25,
+  "note": "mean_accuracy computed from official-test TEST accuracy per fold, never the inner-val score used for checkpoint selection."
+}

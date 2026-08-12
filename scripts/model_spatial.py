@@ -1,7 +1,6 @@
 """
-model_spatial.py
+model_spatial_concat.py
 --------------------------
-Binary AAD model (T1 hemisphere, T2 eccentricity)
 """
 
 import torch

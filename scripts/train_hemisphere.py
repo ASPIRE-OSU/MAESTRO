@@ -1,7 +1,13 @@
 """
-train_hemisphere.py
--------------------
-T1 (Attended Hemisphere) — binary AAD experiment.
+train_hemisphere.py — T2 (Attended Hemisphere), runs under EITHER of
+the dataset's two official split protocols.
+
+--split_setting loso   : subject-generalization (16 folds)
+--split_setting within : content-generalization, pooled across subjects (5 folds)
+
+See train_aad.py's module docstring for the full explanation of what
+each protocol controls for; this file mirrors that same pattern for the
+binary hemisphere task.
 """
 
 import os
@@ -13,11 +19,13 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
-from sklearn.model_selection import StratifiedKFold
 
-from dataloader import (build_dataset, N_EEG_CH, N_VIDEO_CH,
-                        N_GAZE_CH, N_IMU_CH, N_SPEAKERS, WINDOW_SAMP,
-                        VALID_MODES)
+from dataloader import (build_dataset, load_official_splits,
+                        get_official_split_windows, carve_inner_val,
+                        carve_inner_val_content, compute_global_content_holdout,
+                        N_EEG_CH, N_VIDEO_CH, N_GAZE_CH, N_IMU_CH,
+                        N_SPEAKERS, VALID_MODES,
+                        WINDOW_SEC as dl_WINDOW_SEC)
 from model_spatial import AADModel
 
 
@@ -35,29 +43,21 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 def _mode_seed(base_seed: int, mode: str) -> int:
     """
     Deterministic mode-dependent seed offset, fixing a seed COLLISION
-    bug: per-fold reseeding alone (SEED + fold) is not sufficient when
-    two DIFFERENT modes share a fold and produce architecturally
-    IDENTICAL model shapes (e.g. gaze and imu are both 6-channel single
-    modalities) — both runs would get identical initial weights,
-    identical DataLoader shuffle order, and identical per-batch
-    speaker-permutation draws, differing only in the numeric content of
-    the input tensors. This was empirically confirmed to produce
-    bit-identical outputs (1.0000 prediction agreement, identical
-    confusion matrices) between independently-trained gaze and imu
-    models sharing a fold. Uses zlib.crc32 rather than Python's builtin
-    hash(), which is randomized per-process (PYTHONHASHSEED) and would
-    silently break run-to-run reproducibility.
+    bug: per-fold reseeding alone is not sufficient when two DIFFERENT
+    modes share a fold and produce architecturally IDENTICAL model
+    shapes (e.g. gaze and imu are both 6-channel single modalities).
+    Uses zlib.crc32 rather than Python's builtin hash(), which is
+    randomized per-process (PYTHONHASHSEED) and would silently break
+    run-to-run reproducibility.
     """
     return base_seed + (zlib.crc32(mode.encode()) % 10_000)
 
-# T1 hemisphere label mapping (0-based speaker index → binary label)
+# T2 hemisphere label mapping (0-based speaker index → binary label)
 # S1(0)=left, S2(1)=left, S3(2)=right, S4(3)=right
 HEMISPHERE_LABEL = {0: 0, 1: 0, 2: 1, 3: 1}
 
 N_CLASSES = 2   # binary: left=0, right=1
 
-# All 18 mode names (15 canonical + 3 legacy aliases), human-readable
-# labels for logging/result-JSON purposes.
 MODE_LABELS = {
     "eeg":                 "EEG only",
     "gaze":                "Gaze only",
@@ -74,32 +74,21 @@ MODE_LABELS = {
     "eeg_imu_video":       "EEG+IMU+Video",
     "gaze_imu_video":      "Gaze+IMU+Video",
     "eeg_gaze_imu_video":  "EEG+Gaze+IMU+Video",
-    "gi":                  "Gaze+IMU",             # alias -> gaze_imu
-    "eeg_vg":              "EEG+Gaze+Video",        # alias -> eeg_gaze_video
-    "eeg_vgi":             "EEG+Gaze+IMU+Video",     # alias -> eeg_gaze_imu_video
+    "gi":                  "Gaze+IMU",
+    "eeg_vg":              "EEG+Gaze+Video",
+    "eeg_vgi":             "EEG+Gaze+IMU+Video",
 }
 
 
 # ── label helpers ─────────────────────────────────────────────────────────────
 
 def get_hemisphere_labels(att_idxs: np.ndarray) -> np.ndarray:
-    """Convert attended speaker indices (0-based) to hemisphere labels."""
     return np.array([HEMISPHERE_LABEL[i] for i in att_idxs], dtype=np.int64)
 
 
 def group_audio_hemisphere(audio: list) -> list:
-    """
-    Group 4 speaker envelopes into 2 hemisphere envelopes.
-
-    audio : list of 4 tensors, each (B, T, 1)
-            [S1, S2, S3, S4] — original order (not rotated)
-
-    Returns
-    -------
-    [env_left, env_right] each (B, T, 1)
-    """
-    env_left  = (audio[0] + audio[1]) / 2.0   # mean(S1, S2)
-    env_right = (audio[2] + audio[3]) / 2.0   # mean(S3, S4)
+    env_left  = (audio[0] + audio[1]) / 2.0
+    env_right = (audio[2] + audio[3]) / 2.0
     return [env_left, env_right]
 
 
@@ -107,14 +96,10 @@ def group_audio_hemisphere(audio: list) -> list:
 
 class HemisphereDataset(Dataset):
     """
-    Dataset for T1 hemisphere binary decoding.
-
+    Dataset for T2 hemisphere binary decoding.
     Returns (eeg, video, gaze, imu, [env_left, env_right], label)
-    where label ∈ {0=left, 1=right}.
-
-    Audio envelopes are grouped BEFORE batching so the model always
-    sees the correct hemisphere grouping. No speaker randomisation —
-    S1–S4 always map to their fixed hemisphere.
+    where label ∈ {0=left, 1=right}. No speaker randomisation — S1–S4
+    always map to their fixed hemisphere.
     """
 
     def __init__(self, data: dict, window_idx: np.ndarray, train: bool = True):
@@ -126,21 +111,18 @@ class HemisphereDataset(Dataset):
         self.gaze  = torch.from_numpy(data["gaze"][idx])  if data["gaze"]  is not None else None
         self.imu   = torch.from_numpy(data["imu"][idx])   if data["imu"]   is not None else None
 
-        # Original 4-speaker envelopes (in fixed S1–S4 order)
         self.audio = [torch.from_numpy(data["audio"][i][idx])
                       for i in range(N_SPEAKERS)]
 
-        # Binary hemisphere labels
-        hem_labels      = get_hemisphere_labels(data["att_idxs"][idx])
-        self.labels     = torch.from_numpy(
+        hem_labels  = get_hemisphere_labels(data["att_idxs"][idx])
+        self.labels = torch.from_numpy(
             np.eye(N_CLASSES, dtype=np.float32)[hem_labels]
-        )  # one-hot (N, 2)
+        )
 
     def __len__(self):
         return len(self.labels)
 
     def __getitem__(self, idx):
-        # Group envelopes into hemispheres
         env_left  = (self.audio[0][idx] + self.audio[1][idx]) / 2.0
         env_right = (self.audio[2][idx] + self.audio[3][idx]) / 2.0
 
@@ -169,14 +151,6 @@ def collate_fn(batch):
 # ── model ─────────────────────────────────────────────────────────────────────
 
 def _new_model(mode: str, seed: int) -> AADModel:
-    """
-    Binary (2-class) AADModel for hemisphere decoding, reseeding
-    immediately beforehand so this fold's weight initialization is
-    independent of however many prior folds have already run in this
-    process. Without this, a later fold can inherit whatever RNG state
-    prior folds' weight init + DataLoader shuffling + Adam updates
-    happened to leave behind.
-    """
     torch.manual_seed(seed)
     np.random.seed(seed)
     if torch.cuda.is_available():
@@ -232,10 +206,12 @@ def _run_epoch(model, loader, optimizer=None,
     return total_loss / n, total_acc / n
 
 
-# ── training loop ─────────────────────────────────────────────────────────────
+# ── training loop (inner-val for selection ONLY) ────────────────────────────────
 
 def train_model(model, train_loader, val_loader,
                 epochs, ckpt_path, lr=1e-4, label_smoothing=0.1):
+    """Trains with train_loader/val_loader for checkpoint SELECTION
+    ONLY. Returns best_inner_val_acc, NOT a final reportable number."""
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="max", factor=0.5, patience=5, min_lr=1e-6
@@ -253,7 +229,7 @@ def train_model(model, train_loader, val_loader,
 
         print(f"  Ep {epoch:03d} | "
               f"tr_loss={tr_loss:.4f} tr_acc={tr_acc:.4f} | "
-              f"vl_loss={vl_loss:.4f} vl_acc={vl_acc:.4f}")
+              f"inner_val_loss={vl_loss:.4f} inner_val_acc={vl_acc:.4f}")
 
         if vl_acc > best_val_acc:
             best_val_acc = vl_acc
@@ -269,110 +245,141 @@ def train_model(model, train_loader, val_loader,
     return best_val_acc
 
 
-# ── 5-fold CV ─────────────────────────────────────────────────────────────────
+@torch.no_grad()
+def evaluate_test(model, test_loader):
+    """ONE-TIME evaluation of a selected checkpoint on the official test
+    partition — called exactly once per fold, after selection is done."""
+    model.eval()
+    total_acc, n = 0.0, 0
+    for eeg, video, gaze, imu, audio, labels in test_loader:
+        eeg = _to(eeg); video = _to(video); gaze = _to(gaze); imu = _to(imu)
+        audio = [a.to(DEVICE) for a in audio]
+        labels = labels.to(DEVICE)
+        probs = model(eeg, video, gaze, imu, audio)
+        total_acc += _accuracy(probs, labels)
+        n += 1
+    return total_acc / n
 
-def run_kfold(data: dict,
-              results_dir: str,
-              mode: str       = "eeg",
-              n_splits: int   = 5,
-              epochs: int     = 50,
-              batch_size: int = 32,
-              lr: float       = 1e-4,
-              label_smoothing: float = 0.1):
+
+# ── official splits runner ──────────────────────────────────────────────────────
+
+def run_official_splits(data: dict, results_dir: str, mode: str = "eeg",
+                        split_setting: str = "within", splits_dir: str = "splits",
+                        epochs: int = 50, batch_size: int = 32,
+                        lr: float = 1e-4, label_smoothing: float = 0.1,
+                        inner_val_frac: float = 0.2,
+                        held_out_content_frac: float = 0.2):
     """
-    5-fold stratified CV for T1 hemisphere decoding.
-    Stratified on binary hemisphere label (not 4-class attended speaker).
+    Runs T2 hemisphere decoding under the dataset's official split
+    protocol (loso or within), reading splits_dir/{split_setting}/
+    fold_*.json directly as the authoritative train/test definition.
+
+    For loso specifically: the OFFICIAL protocol only excludes the held-
+    out subject's IDENTITY -- its test set is "all trials of the held-
+    out subject", so trial CONTENT is still shared with the 15 training
+    subjects. A GLOBAL content holdout (computed ONCE, same across all
+    16 folds) is layered on top so the held-out subject is novel in
+    BOTH identity and content, matching train_aad.py's treatment.
     """
     from collections import Counter
     os.makedirs(results_dir, exist_ok=True)
-
     mode_label = MODE_LABELS[mode]
 
-    # Compute binary hemisphere labels at trial level for stratification
-    trial_ids      = data["trial_meta_ids"]
-    trial_att_idxs = data["trial_meta_att_idx"]
-    trial_hem_labels = np.array(
-        [HEMISPHERE_LABEL[i] for i in trial_att_idxs], dtype=np.int64
-    )
-
-    n_trials  = len(trial_ids)
-    n_windows = len(data["audio"][0])
-
-    print(f"\nTask    : T1 Hemisphere (left vs right)")
+    folds = load_official_splits(splits_dir, split_setting)
+    print(f"\nTask    : T2 Hemisphere (left vs right)")
     print(f"Mode    : {mode_label}")
-    print(f"Dataset : {n_trials} trials, {n_windows} windows")
-    print(f"Label dist: {dict(sorted(Counter(trial_hem_labels.tolist()).items()))}")
-    print(f"Running {n_splits}-fold stratified CV\n")
+    print(f"Protocol: {split_setting}  ({len(folds)} official folds)")
 
-    skf          = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=SEED)
+    if split_setting == "loso":
+        train_content_set, heldout_content_set = compute_global_content_holdout(
+            data, held_out_content_frac=held_out_content_frac, seed=SEED)
+        print(f"Global content holdout (loso only): "
+              f"{len(train_content_set)} train-content trials, "
+              f"{len(heldout_content_set)} held-out-content trials")
+
     fold_results = {}
+    for fold_info in folds:
+        fold_num = fold_info["fold"]
+        tr_idx, te_idx = get_official_split_windows(data, fold_info)
 
-    for fold, (tr_t_idx, vl_t_idx) in enumerate(skf.split(trial_ids, trial_hem_labels)):
-        tr_trial_ids = trial_ids[tr_t_idx]
-        vl_trial_ids = trial_ids[vl_t_idx]
+        if split_setting == "loso":
+            win_content = data["trial_meta_tid"][
+                np.searchsorted(data["trial_meta_ids"], data["trial_ids"])]
+            is_train_content   = np.isin(win_content, list(train_content_set))
+            is_heldout_content = np.isin(win_content, list(heldout_content_set))
 
-        win_trial_ids = data["trial_ids"]
-        train_idx = np.where(np.isin(win_trial_ids, tr_trial_ids))[0]
-        val_idx   = np.where(np.isin(win_trial_ids, vl_trial_ids))[0]
+            tr_idx = tr_idx[is_train_content[tr_idx]]
+            te_idx = te_idx[is_heldout_content[te_idx]]
 
-        # Val hemisphere distribution
-        val_hem = get_hemisphere_labels(data["att_idxs"][val_idx])
-        vl_dist = dict(sorted(Counter(val_hem.tolist()).items()))
+            inner_tr_idx, inner_vl_idx = carve_inner_val(
+                data, tr_idx, val_frac=inner_val_frac, seed=SEED + fold_num)
+        else:
+            inner_tr_idx, inner_vl_idx = carve_inner_val_content(
+                data, tr_idx, val_frac=inner_val_frac, seed=SEED + fold_num)
+
+        te_hem  = get_hemisphere_labels(data["att_idxs"][te_idx])
+        te_dist = dict(sorted(Counter(te_hem.tolist()).items()))
 
         print(f"\n{'='*60}")
-        print(f"Fold {fold+1}/{n_splits}  [T1 Hemisphere — {mode_label}]")
-        print(f"  Train : {len(tr_trial_ids)} trials, {len(train_idx)} windows")
-        print(f"  Val   : {len(vl_trial_ids)} trials, {len(val_idx)} windows")
-        print(f"  Val hemisphere dist (0=left, 1=right): {vl_dist}")
+        print(f"Fold {fold_num}  [{split_setting}, T2 Hemisphere — {mode_label}]")
+        print(f"  Inner train : {len(inner_tr_idx)} windows")
+        print(f"  Inner val   : {len(inner_vl_idx)} windows")
+        print(f"  TEST (official) : {len(te_idx)} windows, dist (0=left,1=right): {te_dist}")
         print(f"{'='*60}")
 
-        tr_ds = HemisphereDataset(data, train_idx, train=True)
-        vl_ds = HemisphereDataset(data, val_idx,   train=False)
+        tr_ds = HemisphereDataset(data, inner_tr_idx, train=True)
+        vl_ds = HemisphereDataset(data, inner_vl_idx, train=False)
+        te_ds = HemisphereDataset(data, te_idx,       train=False)
 
         tr_loader = DataLoader(tr_ds, batch_size=batch_size, shuffle=True,
                                collate_fn=collate_fn, num_workers=0)
         vl_loader = DataLoader(vl_ds, batch_size=batch_size, shuffle=False,
                                collate_fn=collate_fn, num_workers=0)
+        te_loader = DataLoader(te_ds, batch_size=batch_size, shuffle=False,
+                               collate_fn=collate_fn, num_workers=0)
 
-        # Reseed per-fold AND per-mode (see _mode_seed) so every fold gets
-        # an independent, reproducible initialization instead of
-        # inheriting whatever RNG state prior folds happened to leave
-        # behind, and so different modes sharing a fold don't collide.
-        model     = _new_model(mode=mode, seed=_mode_seed(SEED + fold, mode))
-        ckpt_path = os.path.join(results_dir, f"fold_{fold+1}_{mode}_hemisphere.pt")
+        model     = _new_model(mode=mode, seed=_mode_seed(SEED + fold_num, mode))
+        ckpt_path = os.path.join(results_dir, f"fold_{fold_num}_{mode}_hemisphere_{split_setting}.pt")
 
-        best_acc = train_model(
+        best_inner_val_acc = train_model(
             model, tr_loader, vl_loader,
             epochs=epochs, ckpt_path=ckpt_path,
             lr=lr, label_smoothing=label_smoothing,
         )
+        test_acc = evaluate_test(model, te_loader)
 
-        print(f"\n  → Fold {fold+1} best val accuracy: {best_acc:.4f}")
-        fold_results[fold + 1] = {
-            "val_accuracy":   best_acc,
-            "n_train_trials": len(tr_trial_ids),
-            "n_val_trials":   len(vl_trial_ids),
-            "val_hem_dist":   vl_dist,
+        print(f"\n  → Fold {fold_num} best inner_val: {best_inner_val_acc:.4f} "
+              f"| TEST acc (reported): {test_acc:.4f}")
+        fold_results[fold_num] = {
+            "test_accuracy":      test_acc,
+            "best_inner_val_acc": best_inner_val_acc,
+            "n_inner_train_windows": len(inner_tr_idx),
+            "n_inner_val_windows":   len(inner_vl_idx),
+            "n_test_windows":        len(te_idx),
+            "test_hem_dist":         te_dist,
         }
 
-    accs = [v["val_accuracy"] for v in fold_results.values()]
+    accs = [v["test_accuracy"] for v in fold_results.values()]
     summary = {
-        "task":          "T1_hemisphere",
+        "task":          "T2_hemisphere",
         "mode":          mode_label,
+        "split_setting": split_setting,
         "folds":         fold_results,
         "mean_accuracy": float(np.mean(accs)),
         "std_accuracy":  float(np.std(accs)),
         "chance_level":  0.5,
+        "note": "mean_accuracy computed from official-test TEST accuracy per fold, "
+               "never the inner-val score used for checkpoint selection.",
     }
 
     print(f"\n{'='*60}")
-    print(f"5-Fold CV Summary  [T1 Hemisphere — {mode_label}]")
+    print(f"{split_setting.upper()} Summary  [T2 Hemisphere — {mode_label}]")
     print(f"  Per-fold : {[f'{a:.4f}' for a in accs]}")
     print(f"  Mean±Std : {np.mean(accs):.4f} ± {np.std(accs):.4f}")
     print(f"  Chance   : 0.5000")
     print(f"{'='*60}")
 
-    out_path = os.path.join(results_dir, f"hemisphere_results_{mode}.json")
+    out_path = os.path.join(results_dir, f"results_{mode}_hemisphere_{split_setting}.json")
     with open(out_path, "w") as f:
         json.dump(summary, f, indent=2)
     print(f"\nResults saved to {out_path}")
@@ -382,42 +389,59 @@ def run_kfold(data: dict,
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 def parse_args():
-    p = argparse.ArgumentParser(
-        description="T1 Hemisphere binary AAD decoding"
-    )
-    p.add_argument("--local_path",      default='maestro',
-                   help="Root of the MAESTRO HuggingFace dataset")
-    p.add_argument("--cache_dir",       default='cache',
-                   help="Directory to cache preprocessed video/gaze/IMU features.")
+    p = argparse.ArgumentParser(description="T2 Hemisphere binary AAD decoding")
+    p.add_argument("--local_path",      default='maestro')
+    p.add_argument("--cache_dir",       default='cache')
     p.add_argument("--mode",            choices=VALID_MODES, default="eeg")
     p.add_argument("--results",         default="results_hemisphere")
-    p.add_argument("--n_splits",        type=int,   default=5)
+    p.add_argument("--split_setting",   choices=["loso", "within"], default="within",
+                   help="Which official split protocol to use (default: within)")
+    p.add_argument("--splits_dir",      default=None,
+                   help="Path to the dataset's splits/ folder. "
+                        "Defaults to <local_path>/splits (i.e. nested "
+                        "inside the dataset root, matching the real "
+                        "dataset layout) if not given explicitly.")
     p.add_argument("--epochs",          type=int,   default=50)
     p.add_argument("--batch_size",      type=int,   default=32)
     p.add_argument("--lr",              type=float, default=1e-4)
     p.add_argument("--label_smoothing", type=float, default=0.1)
+    p.add_argument("--inner_val_frac",  type=float, default=0.2)
+    p.add_argument("--held_out_content_frac", type=float, default=0.2,
+                   help="LOSO ONLY: fraction of trial CONTENT held out "
+                        "globally, layered on top of the official "
+                        "subject-based loso split (default 0.2). "
+                        "Ignored for --split_setting within.")
+    p.add_argument("--window_sec",      type=float, default=None)
+    p.add_argument("--hop_sec",         type=float, default=None)
     return p.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
+    if args.splits_dir is None:
+        args.splits_dir = os.path.join(args.local_path, "splits")
     print(f"Device : {DEVICE}")
     print(f"Seed   : {SEED}")
-    print(f"Task   : T1 Hemisphere (left vs right)  — chance=0.5")
+    print(f"Task   : T2 Hemisphere (left vs right)  — chance=0.5")
     print(f"Mode   : {args.mode}  ({MODE_LABELS[args.mode]})")
-    if args.cache_dir:
-        print(f"Cache  : {args.cache_dir}")
+    print(f"Split  : {args.split_setting}")
 
     print("\nLoading dataset...")
-    data = build_dataset(local_path=args.local_path, mode=args.mode, cache_dir=args.cache_dir)
+    kwargs = {}
+    if args.window_sec is not None: kwargs["window_sec"] = args.window_sec
+    if args.hop_sec    is not None: kwargs["hop_sec"]    = args.hop_sec
+    data = build_dataset(local_path=args.local_path, mode=args.mode,
+                         cache_dir=args.cache_dir, **kwargs)
 
-    run_kfold(
-        data            = data,
-        results_dir     = args.results,
-        mode            = args.mode,
-        n_splits        = args.n_splits,
-        epochs          = args.epochs,
-        batch_size      = args.batch_size,
-        lr              = args.lr,
-        label_smoothing = args.label_smoothing,
+    window_sec_eff = args.window_sec if args.window_sec is not None else dl_WINDOW_SEC
+    hop_sec_eff    = args.hop_sec    if args.hop_sec    is not None else window_sec_eff
+    results_dir = (f"{args.results}_{args.split_setting}"
+                   f"_w{window_sec_eff:g}_h{hop_sec_eff:g}")
+    run_official_splits(
+        data=data, results_dir=results_dir, mode=args.mode,
+        split_setting=args.split_setting, splits_dir=args.splits_dir,
+        epochs=args.epochs, batch_size=args.batch_size,
+        lr=args.lr, label_smoothing=args.label_smoothing,
+        inner_val_frac=args.inner_val_frac,
+        held_out_content_frac=args.held_out_content_frac,
     )

@@ -1,0 +1,415 @@
+{
+  "eeg": {
+    "task": "aad",
+    "mode": "eeg",
+    "split_setting": "loso",
+    "combine": "single (no fusion)",
+    "active_modalities": [
+      "eeg"
+    ],
+    "mean_accuracy": 0.4592633997090161,
+    "std_accuracy": 0.06448874918262891
+  },
+  "gaze": {
+    "task": "aad",
+    "mode": "gaze",
+    "split_setting": "loso",
+    "combine": "single (no fusion)",
+    "active_modalities": [
+      "gaze"
+    ],
+    "mean_accuracy": 0.4745479989796877,
+    "std_accuracy": 0.04679708168022723
+  },
+  "imu": {
+    "task": "aad",
+    "mode": "imu",
+    "split_setting": "loso",
+    "combine": "single (no fusion)",
+    "active_modalities": [
+      "imu"
+    ],
+    "mean_accuracy": 0.4841852756217122,
+    "std_accuracy": 0.059762199335269384
+  },
+  "video": {
+    "task": "aad",
+    "mode": "video",
+    "split_setting": "loso",
+    "combine": "single (no fusion)",
+    "active_modalities": [
+      "video"
+    ],
+    "mean_accuracy": 0.4864676408469677,
+    "std_accuracy": 0.05453621837502969
+  },
+  "eeg_gaze": {
+    "task": "aad",
+    "split_setting": "loso",
+    "mode": "eeg_gaze",
+    "window_sec": 15.0,
+    "hop_sec": 7.5,
+    "combine": "learned",
+    "active_modalities": [
+      "eeg",
+      "gaze"
+    ],
+    "per_fold_test_accuracy": {
+      "0": 0.5333333333333333,
+      "1": 0.40350877192982454,
+      "2": 0.4166666666666667,
+      "3": 0.48333333333333334,
+      "4": 0.48333333333333334,
+      "5": 0.48333333333333334,
+      "6": 0.5166666666666667,
+      "7": 0.5666666666666667,
+      "8": 0.5166666666666667,
+      "9": 0.4166666666666667,
+      "10": 0.48333333333333334,
+      "11": 0.4166666666666667,
+      "12": 0.45,
+      "13": 0.4666666666666667,
+      "14": 0.43333333333333335,
+      "15": 0.48333333333333334
+    },
+    "mean_accuracy": 0.472094298245614,
+    "std_accuracy": 0.04557946010602231,
+    "note": "mean_accuracy computed from official-test accuracy per fold, never the inner-val score used for combiner selection."
+  },
+  "eeg_imu": {
+    "task": "aad",
+    "split_setting": "loso",
+    "mode": "eeg_imu",
+    "window_sec": 15.0,
+    "hop_sec": 7.5,
+    "combine": "learned",
+    "active_modalities": [
+      "eeg",
+      "imu"
+    ],
+    "per_fold_test_accuracy": {
+      "0": 0.5333333333333333,
+      "1": 0.5263157894736842,
+      "2": 0.4166666666666667,
+      "3": 0.48333333333333334,
+      "4": 0.5166666666666667,
+      "5": 0.48333333333333334,
+      "6": 0.5,
+      "7": 0.4,
+      "8": 0.4666666666666667,
+      "9": 0.45,
+      "10": 0.48333333333333334,
+      "11": 0.4166666666666667,
+      "12": 0.6,
+      "13": 0.5,
+      "14": 0.43333333333333335,
+      "15": 0.4666666666666667
+    },
+    "mean_accuracy": 0.4797697368421053,
+    "std_accuracy": 0.04963748696448977,
+    "note": "mean_accuracy computed from official-test accuracy per fold, never the inner-val score used for combiner selection."
+  },
+  "eeg_video": {
+    "task": "aad",
+    "split_setting": "loso",
+    "mode": "eeg_video",
+    "window_sec": 15.0,
+    "hop_sec": 7.5,
+    "combine": "learned",
+    "active_modalities": [
+      "eeg",
+      "video"
+    ],
+    "per_fold_test_accuracy": {
+      "0": 0.5333333333333333,
+      "1": 0.5087719298245614,
+      "2": 0.5666666666666667,
+      "3": 0.48333333333333334,
+      "4": 0.4166666666666667,
+      "5": 0.5833333333333334,
+      "6": 0.45,
+      "7": 0.5666666666666667,
+      "8": 0.4166666666666667,
+      "9": 0.6,
+      "10": 0.48333333333333334,
+      "11": 0.4166666666666667,
+      "12": 0.48333333333333334,
+      "13": 0.45,
+      "14": 0.31666666666666665,
+      "15": 0.5
+    },
+    "mean_accuracy": 0.48596491228070177,
+    "std_accuracy": 0.07252044107459242,
+    "note": "mean_accuracy computed from official-test accuracy per fold, never the inner-val score used for combiner selection."
+  },
+  "gaze_imu": {
+    "task": "aad",
+    "split_setting": "loso",
+    "mode": "gaze_imu",
+    "window_sec": 15.0,
+    "hop_sec": 7.5,
+    "combine": "learned",
+    "active_modalities": [
+      "gaze",
+      "imu"
+    ],
+    "per_fold_test_accuracy": {
+      "0": 0.5666666666666667,
+      "1": 0.5263157894736842,
+      "2": 0.5166666666666667,
+      "3": 0.5,
+      "4": 0.5166666666666667,
+      "5": 0.48333333333333334,
+      "6": 0.5,
+      "7": 0.4,
+      "8": 0.4666666666666667,
+      "9": 0.4166666666666667,
+      "10": 0.48333333333333334,
+      "11": 0.4166666666666667,
+      "12": 0.6,
+      "13": 0.5,
+      "14": 0.43333333333333335,
+      "15": 0.48333333333333334
+    },
+    "mean_accuracy": 0.48810307017543864,
+    "std_accuracy": 0.05226477513906499,
+    "note": "mean_accuracy computed from official-test accuracy per fold, never the inner-val score used for combiner selection."
+  },
+  "gaze_video": {
+    "task": "aad",
+    "split_setting": "loso",
+    "mode": "gaze_video",
+    "window_sec": 15.0,
+    "hop_sec": 7.5,
+    "combine": "learned",
+    "active_modalities": [
+      "gaze",
+      "video"
+    ],
+    "per_fold_test_accuracy": {
+      "0": 0.5333333333333333,
+      "1": 0.5087719298245614,
+      "2": 0.5666666666666667,
+      "3": 0.5,
+      "4": 0.4166666666666667,
+      "5": 0.5833333333333334,
+      "6": 0.45,
+      "7": 0.48333333333333334,
+      "8": 0.4166666666666667,
+      "9": 0.6,
+      "10": 0.48333333333333334,
+      "11": 0.4166666666666667,
+      "12": 0.45,
+      "13": 0.45,
+      "14": 0.43333333333333335,
+      "15": 0.5
+    },
+    "mean_accuracy": 0.48700657894736843,
+    "std_accuracy": 0.057667699058791155,
+    "note": "mean_accuracy computed from official-test accuracy per fold, never the inner-val score used for combiner selection."
+  },
+  "imu_video": {
+    "task": "aad",
+    "split_setting": "loso",
+    "mode": "imu_video",
+    "window_sec": 15.0,
+    "hop_sec": 7.5,
+    "combine": "learned",
+    "active_modalities": [
+      "imu",
+      "video"
+    ],
+    "per_fold_test_accuracy": {
+      "0": 0.5666666666666667,
+      "1": 0.5263157894736842,
+      "2": 0.5666666666666667,
+      "3": 0.48333333333333334,
+      "4": 0.5166666666666667,
+      "5": 0.48333333333333334,
+      "6": 0.45,
+      "7": 0.4,
+      "8": 0.4666666666666667,
+      "9": 0.6,
+      "10": 0.36666666666666664,
+      "11": 0.55,
+      "12": 0.6,
+      "13": 0.5,
+      "14": 0.43333333333333335,
+      "15": 0.5
+    },
+    "mean_accuracy": 0.5006030701754386,
+    "std_accuracy": 0.06554686168736207,
+    "note": "mean_accuracy computed from official-test accuracy per fold, never the inner-val score used for combiner selection."
+  },
+  "eeg_gaze_imu": {
+    "task": "aad",
+    "split_setting": "loso",
+    "mode": "eeg_gaze_imu",
+    "window_sec": 15.0,
+    "hop_sec": 7.5,
+    "combine": "learned",
+    "active_modalities": [
+      "eeg",
+      "gaze",
+      "imu"
+    ],
+    "per_fold_test_accuracy": {
+      "0": 0.5333333333333333,
+      "1": 0.5263157894736842,
+      "2": 0.4166666666666667,
+      "3": 0.48333333333333334,
+      "4": 0.5166666666666667,
+      "5": 0.48333333333333334,
+      "6": 0.5,
+      "7": 0.4,
+      "8": 0.4666666666666667,
+      "9": 0.4166666666666667,
+      "10": 0.4666666666666667,
+      "11": 0.4166666666666667,
+      "12": 0.6,
+      "13": 0.5,
+      "14": 0.43333333333333335,
+      "15": 0.48333333333333334
+    },
+    "mean_accuracy": 0.47768640350877195,
+    "std_accuracy": 0.05150752225638501,
+    "note": "mean_accuracy computed from official-test accuracy per fold, never the inner-val score used for combiner selection."
+  },
+  "eeg_gaze_video": {
+    "task": "aad",
+    "split_setting": "loso",
+    "mode": "eeg_gaze_video",
+    "window_sec": 15.0,
+    "hop_sec": 7.5,
+    "combine": "learned",
+    "active_modalities": [
+      "eeg",
+      "gaze",
+      "video"
+    ],
+    "per_fold_test_accuracy": {
+      "0": 0.5333333333333333,
+      "1": 0.5087719298245614,
+      "2": 0.5666666666666667,
+      "3": 0.48333333333333334,
+      "4": 0.4166666666666667,
+      "5": 0.5833333333333334,
+      "6": 0.45,
+      "7": 0.5666666666666667,
+      "8": 0.4166666666666667,
+      "9": 0.6,
+      "10": 0.4666666666666667,
+      "11": 0.4166666666666667,
+      "12": 0.45,
+      "13": 0.45,
+      "14": 0.43333333333333335,
+      "15": 0.5
+    },
+    "mean_accuracy": 0.4901315789473684,
+    "std_accuracy": 0.06104807844990177,
+    "note": "mean_accuracy computed from official-test accuracy per fold, never the inner-val score used for combiner selection."
+  },
+  "eeg_imu_video": {
+    "task": "aad",
+    "split_setting": "loso",
+    "mode": "eeg_imu_video",
+    "window_sec": 15.0,
+    "hop_sec": 7.5,
+    "combine": "learned",
+    "active_modalities": [
+      "eeg",
+      "imu",
+      "video"
+    ],
+    "per_fold_test_accuracy": {
+      "0": 0.5333333333333333,
+      "1": 0.5263157894736842,
+      "2": 0.5666666666666667,
+      "3": 0.48333333333333334,
+      "4": 0.5166666666666667,
+      "5": 0.48333333333333334,
+      "6": 0.45,
+      "7": 0.4,
+      "8": 0.4666666666666667,
+      "9": 0.6,
+      "10": 0.48333333333333334,
+      "11": 0.4166666666666667,
+      "12": 0.6,
+      "13": 0.5,
+      "14": 0.43333333333333335,
+      "15": 0.5
+    },
+    "mean_accuracy": 0.49747807017543855,
+    "std_accuracy": 0.05714970765544744,
+    "note": "mean_accuracy computed from official-test accuracy per fold, never the inner-val score used for combiner selection."
+  },
+  "gaze_imu_video": {
+    "task": "aad",
+    "split_setting": "loso",
+    "mode": "gaze_imu_video",
+    "window_sec": 15.0,
+    "hop_sec": 7.5,
+    "combine": "learned",
+    "active_modalities": [
+      "gaze",
+      "imu",
+      "video"
+    ],
+    "per_fold_test_accuracy": {
+      "0": 0.5666666666666667,
+      "1": 0.5263157894736842,
+      "2": 0.5666666666666667,
+      "3": 0.5,
+      "4": 0.5166666666666667,
+      "5": 0.48333333333333334,
+      "6": 0.45,
+      "7": 0.4,
+      "8": 0.4666666666666667,
+      "9": 0.6,
+      "10": 0.48333333333333334,
+      "11": 0.4166666666666667,
+      "12": 0.6,
+      "13": 0.5,
+      "14": 0.43333333333333335,
+      "15": 0.5
+    },
+    "mean_accuracy": 0.5006030701754386,
+    "std_accuracy": 0.05884775054094114,
+    "note": "mean_accuracy computed from official-test accuracy per fold, never the inner-val score used for combiner selection."
+  },
+  "eeg_gaze_imu_video": {
+    "task": "aad",
+    "split_setting": "loso",
+    "mode": "eeg_gaze_imu_video",
+    "window_sec": 15.0,
+    "hop_sec": 7.5,
+    "combine": "learned",
+    "active_modalities": [
+      "eeg",
+      "gaze",
+      "imu",
+      "video"
+    ],
+    "per_fold_test_accuracy": {
+      "0": 0.5333333333333333,
+      "1": 0.5263157894736842,
+      "2": 0.5666666666666667,
+      "3": 0.48333333333333334,
+      "4": 0.5166666666666667,
+      "5": 0.48333333333333334,
+      "6": 0.45,
+      "7": 0.4,
+      "8": 0.4666666666666667,
+      "9": 0.6,
+      "10": 0.4666666666666667,
+      "11": 0.4166666666666667,
+      "12": 0.6,
+      "13": 0.5,
+      "14": 0.43333333333333335,
+      "15": 0.5
+    },
+    "mean_accuracy": 0.49643640350877194,
+    "std_accuracy": 0.05754853020298746,
+    "note": "mean_accuracy computed from official-test accuracy per fold, never the inner-val score used for combiner selection."
+  }
+}

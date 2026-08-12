@@ -1,0 +1,75 @@
+{
+  "mode": "Gaze only",
+  "split_setting": "within",
+  "folds": {
+    "0": {
+      "test_accuracy": 0.47698863636363636,
+      "best_inner_val_acc": 0.57078598507426,
+      "n_inner_train_windows": 11253,
+      "n_inner_val_windows": 2805,
+      "n_test_windows": 3520,
+      "test_speaker_dist": {
+        "0": 880,
+        "1": 880,
+        "2": 880,
+        "3": 880
+      }
+    },
+    "1": {
+      "test_accuracy": 0.5136363636363637,
+      "best_inner_val_acc": 0.4318181818181818,
+      "n_inner_train_windows": 11242,
+      "n_inner_val_windows": 2816,
+      "n_test_windows": 3520,
+      "test_speaker_dist": {
+        "0": 880,
+        "1": 880,
+        "2": 880,
+        "3": 880
+      }
+    },
+    "2": {
+      "test_accuracy": 0.5167613636363636,
+      "best_inner_val_acc": 0.4865056818181818,
+      "n_inner_train_windows": 11242,
+      "n_inner_val_windows": 2816,
+      "n_test_windows": 3520,
+      "test_speaker_dist": {
+        "0": 880,
+        "1": 880,
+        "2": 880,
+        "3": 880
+      }
+    },
+    "3": {
+      "test_accuracy": 0.3876704546538266,
+      "best_inner_val_acc": 0.5170454545454546,
+      "n_inner_train_windows": 11264,
+      "n_inner_val_windows": 2816,
+      "n_test_windows": 3498,
+      "test_speaker_dist": {
+        "0": 869,
+        "1": 869,
+        "2": 880,
+        "3": 880
+      }
+    },
+    "4": {
+      "test_accuracy": 0.4872159090909091,
+      "best_inner_val_acc": 0.5081845238296823,
+      "n_inner_train_windows": 11253,
+      "n_inner_val_windows": 2805,
+      "n_test_windows": 3520,
+      "test_speaker_dist": {
+        "0": 880,
+        "1": 880,
+        "2": 880,
+        "3": 880
+      }
+    }
+  },
+  "mean_accuracy": 0.47645454547621985,
+  "std_accuracy": 0.046916594452222224,
+  "chance_level": 0.25,
+  "note": "mean_accuracy computed from official-test TEST accuracy per fold, never the inner-val score used for checkpoint selection."
+}

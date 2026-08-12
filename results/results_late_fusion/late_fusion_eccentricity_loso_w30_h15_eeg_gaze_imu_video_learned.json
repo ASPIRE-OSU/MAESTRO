@@ -1,0 +1,35 @@
+{
+  "task": "eccentricity",
+  "split_setting": "loso",
+  "mode": "eeg_gaze_imu_video",
+  "window_sec": 30.0,
+  "hop_sec": 15.0,
+  "combine": "learned",
+  "active_modalities": [
+    "eeg",
+    "gaze",
+    "imu",
+    "video"
+  ],
+  "per_fold_test_accuracy": {
+    "0": 0.7,
+    "1": 0.6842105263157895,
+    "2": 0.7,
+    "3": 0.55,
+    "4": 0.7,
+    "5": 0.55,
+    "6": 0.65,
+    "7": 0.7,
+    "8": 0.55,
+    "9": 0.7,
+    "10": 0.55,
+    "11": 0.55,
+    "12": 0.65,
+    "13": 0.65,
+    "14": 0.7,
+    "15": 0.6
+  },
+  "mean_accuracy": 0.636513157894737,
+  "std_accuracy": 0.06410930195340536,
+  "note": "mean_accuracy computed from official-test accuracy per fold, never the inner-val score used for combiner selection."
+}

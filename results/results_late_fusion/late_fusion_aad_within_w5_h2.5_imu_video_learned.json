@@ -1,0 +1,22 @@
+{
+  "task": "aad",
+  "split_setting": "within",
+  "mode": "imu_video",
+  "window_sec": 5.0,
+  "hop_sec": 2.5,
+  "combine": "learned",
+  "active_modalities": [
+    "imu",
+    "video"
+  ],
+  "per_fold_test_accuracy": {
+    "0": 0.4318181818181818,
+    "1": 0.5394886363636363,
+    "2": 0.5863636363636363,
+    "3": 0.411663807890223,
+    "4": 0.4849431818181818
+  },
+  "mean_accuracy": 0.49085548885077185,
+  "std_accuracy": 0.0652359879327544,
+  "note": "mean_accuracy computed from official-test accuracy per fold, never the inner-val score used for combiner selection."
+}

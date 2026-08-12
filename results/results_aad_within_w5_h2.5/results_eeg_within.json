@@ -1,0 +1,75 @@
+{
+  "mode": "EEG only",
+  "split_setting": "within",
+  "folds": {
+    "0": {
+      "test_accuracy": 0.4369318181818182,
+      "best_inner_val_acc": 0.5564630681818182,
+      "n_inner_train_windows": 11264,
+      "n_inner_val_windows": 2816,
+      "n_test_windows": 3520,
+      "test_speaker_dist": {
+        "0": 880,
+        "1": 880,
+        "2": 880,
+        "3": 880
+      }
+    },
+    "1": {
+      "test_accuracy": 0.5272727272727272,
+      "best_inner_val_acc": 0.4318181818181818,
+      "n_inner_train_windows": 11264,
+      "n_inner_val_windows": 2816,
+      "n_test_windows": 3520,
+      "test_speaker_dist": {
+        "0": 880,
+        "1": 880,
+        "2": 880,
+        "3": 880
+      }
+    },
+    "2": {
+      "test_accuracy": 0.5588068181818182,
+      "best_inner_val_acc": 0.5003551136363636,
+      "n_inner_train_windows": 11264,
+      "n_inner_val_windows": 2816,
+      "n_test_windows": 3520,
+      "test_speaker_dist": {
+        "0": 880,
+        "1": 880,
+        "2": 880,
+        "3": 880
+      }
+    },
+    "3": {
+      "test_accuracy": 0.38636363636363635,
+      "best_inner_val_acc": 0.5738636363636364,
+      "n_inner_train_windows": 11264,
+      "n_inner_val_windows": 2816,
+      "n_test_windows": 3520,
+      "test_speaker_dist": {
+        "0": 880,
+        "1": 880,
+        "2": 880,
+        "3": 880
+      }
+    },
+    "4": {
+      "test_accuracy": 0.46960227272727273,
+      "best_inner_val_acc": 0.5110085227272727,
+      "n_inner_train_windows": 11264,
+      "n_inner_val_windows": 2816,
+      "n_test_windows": 3520,
+      "test_speaker_dist": {
+        "0": 880,
+        "1": 880,
+        "2": 880,
+        "3": 880
+      }
+    }
+  },
+  "mean_accuracy": 0.4757954545454545,
+  "std_accuracy": 0.06178605657581719,
+  "chance_level": 0.25,
+  "note": "mean_accuracy computed from official-test TEST accuracy per fold, never the inner-val score used for checkpoint selection."
+}
