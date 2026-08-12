@@ -259,7 +259,7 @@ Synchronisation uses the unified timing JSON (`media/timing/`): EEG filtering ru
 A multi-encoder causal dilated convolutional network (`model_classification.py` for T1, `model_spatial.py` for T2/T3 — identical encoder design, binary output). Each active modality is processed by a dedicated encoder and projected to a shared embedding width.
 
 | Encoder | Layers |
-|---|---|---|
+|---|---|
 | EEG | 7 + 1×1 spatial conv |
 | Audio | 7 (shared weights) |
 | Gaze | 6 |
