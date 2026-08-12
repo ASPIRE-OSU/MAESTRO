@@ -102,7 +102,7 @@ MAESTRO/
 │   ├── train_eccentricity.py       # T3 — single modality, either split_setting
 │   ├── late_fusion.py              # Combines independently-trained single-modality checkpoints via a learned softmax combiner — produces every multimodal result
 │   ├── analyze_snr.py              # SNR-stratified accuracy, reusing existing single-modality + late-fusion checkpoints (no retraining)
-│   └── dl_maestro.py               # Dataset download script with rate-limit handling
+│   └── dl_maestro.py               # Dataset download script with rate-limit handling and HF token auth
 └── results/
     ├── results_aad_within_w{5,10,15,20,30}_h{2.5,5,7.5,10,15}/     # T1 within-subject — checkpoints (5 folds × 4 modalities) + result JSONs, one folder per window size
     ├── results_aad_loso_w{5,10,15,20,30}_h{...}/                  # T1 LOSO — checkpoints (16 subjects × 4 modalities) + result JSONs
@@ -130,7 +130,14 @@ pip install -r requirements.txt
 The dataset is publicly available on HuggingFace. Use the provided download script, which handles rate limiting automatically by downloading in batches with retries:
 
 ```bash
+export HF_TOKEN=hf_your_token_here
 python scripts/dl_maestro.py --local_dir maestro-data
+```
+
+Or pass the token directly (not recommended for shared/committed code — prefer the `HF_TOKEN` environment variable so the token never ends up in shell history, scripts, or version control):
+
+```bash
+python scripts/dl_maestro.py --local_dir maestro-data --token hf_your_token_here
 ```
 
 To download specific subjects only:
@@ -139,7 +146,7 @@ To download specific subjects only:
 python scripts/dl_maestro.py --local_dir maestro-data --subjects 1 2 3
 ```
 
-The script downloads in three sequential phases — metadata/root files (including the official `splits/` folder), per-subject modality data (EEG, gaze, IMU parquet files), and media (audio, video, timing) — with a short pause between batches to stay within HuggingFace's free-tier rate limits.
+The script downloads in three sequential phases — metadata, official splits, and root files (`metadata/*`, `splits/*`, `README.md`, `LICENSE`), per-subject modality data (EEG, gaze, IMU parquet files), and media (audio, video, timing) — with a short pause between batches to stay within HuggingFace's free-tier rate limits. If no token is provided (neither `--token` nor `HF_TOKEN`), the script prints a warning and proceeds anyway, which is fine for the public dataset but required for any private/gated access.
 
 ---
 
@@ -181,16 +188,16 @@ T1, T2, and T3 each have their own training script. Train the four single modali
 
 ```bash
 # T1 — within-subject, 30s window
-python scripts/train_aad.py --local_path maestro-data --mode eeg --split_setting within --window_sec 5 --hop_sec 2.5
+python scripts/train_aad.py --local_path maestro-data --mode eeg --split_setting within --window_sec 30 --hop_sec 15
 
 # T1 — LOSO
-python scripts/train_aad.py --local_path maestro-data --mode eeg --split_setting loso --window_sec 10 --hop_sec 5
+python scripts/train_aad.py --local_path maestro-data --mode eeg --split_setting loso --window_sec 30 --hop_sec 15
 
 # T2 — hemisphere (LOSO only)
-python scripts/train_hemisphere.py --local_path maestro-data --mode eeg --split_setting loso --window_sec 15 --hop_sec 7.5
+python scripts/train_hemisphere.py --local_path maestro-data --mode eeg --split_setting loso --window_sec 30 --hop_sec 15
 
 # T3 — eccentricity (LOSO only)
-python scripts/train_eccentricity.py --local_path maestro-data --mode eeg --split_setting loso --window_sec 20 --hop_sec 10
+python scripts/train_eccentricity.py --local_path maestro-data --mode eeg --split_setting loso --window_sec 30 --hop_sec 15
 ```
 Repeat with `--mode gaze`, `--mode imu`, `--mode video`. Each run writes checkpoints and a result JSON to `--results` (defaults to `results_{task}` — pass a folder matching the naming convention above if you want it discoverable by `late_fusion.py`'s auto-detection).
 
@@ -203,11 +210,11 @@ Requires the four single-modality checkpoints for a given task/split/window to a
 ```bash
 # One multi-modality combination
 python scripts/late_fusion.py --task aad --split_setting loso --mode eeg_gaze_imu_video \
-    --local_path maestro-data --cache_dir /cache --window_sec 5 --hop_sec 2.5 --combine learned
+    --local_path maestro-data --cache_dir /cache --window_sec 30 --hop_sec 15 --combine learned
 
 # Sweep all 11 multi-modality combinations, plus fold in the 4 existing single-modality results
 python scripts/late_fusion.py --task aad --split_setting loso --mode all \
-    --local_path maestro-data --cache_dir /cache --window_sec 20 --hop_sec 10 \
+    --local_path maestro-data --cache_dir /cache --window_sec 30 --hop_sec 15 \
     --combine learned --skip_existing
 ```
 
@@ -219,7 +226,7 @@ Reuses the already-trained single-modality and late-fusion checkpoints — no re
 
 ```bash
 python scripts/analyze_snr.py --task aad --split_setting loso --local_path maestro-data \
-    --cache_dir /cache --window_sec 15 --hop_sec 7.5 \
+    --cache_dir /cache --window_sec 30 --hop_sec 15 \
     --late_fusion_dir results_late_fusion --results results_snr
 ```
 
@@ -245,7 +252,7 @@ All modalities are resampled to 64 Hz. Missing samples in gaze and IMU are handl
 | Modality | Pipeline |
 |---|---|
 | EEG | 60 Hz notch → bandpass 1–40 Hz (4th-order Butterworth, filtfilt) → bad-channel detection (flat: std < 1e-9; saturated: ≥10% of samples at the ADC clip; or outlier variance via a MAD-based threshold on first-difference variance relative to the other good channels) → mastoid-preferred reference (good mastoid channels if available, otherwise full-channel average) → spherical-spline interpolation of bad channels via MNE if installed (falls back to an average-reference with no interpolation otherwise) → per-channel z-score → downsample 500→64 Hz |
-| Audio | Raw waveform RMS-equalized to the trial's shared target (mean RMS across that trial's own 4 speakers, computed before enveloping — this equalizes attended-vs-competing loudness so the model can't decode attention from raw audio energy alone) → Hilbert envelope → low-pass 20 Hz (4th-order Butterworth) → downsample 16000→64 Hz → z-score |
+| Audio | **Raw waveform RMS-equalized to the trial's shared target** (mean RMS across that trial's own 4 speakers, computed before enveloping — this equalizes attended-vs-competing loudness so the model can't decode attention from raw audio energy alone) → Hilbert envelope → low-pass 20 Hz (4th-order Butterworth) → downsample 16000→64 Hz → z-score |
 | Gaze | Per-channel NaN drop → linear interpolation to 64 Hz grid → low-pass 10 Hz (4th-order Butterworth) → z-score |
 | IMU | Per-channel NaN drop → linear interpolation to native sampling rate → resample to 64 Hz → low-pass 20 Hz (4th-order Butterworth) → z-score |
 | Video | Downsample frames to 160×90 → grayscale conversion → Farneback dense optical flow between consecutive frames → 4 statistics per frame pair (mean/std flow magnitude, mean horizontal/vertical flow) → resample native fps→64 Hz → z-score |
