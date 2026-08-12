@@ -181,16 +181,16 @@ T1, T2, and T3 each have their own training script. Train the four single modali
 
 ```bash
 # T1 — within-subject, 30s window
-python scripts/train_aad.py --local_path maestro-data --mode eeg --split_setting within --window_sec 30 --hop_sec 15
+python scripts/train_aad.py --local_path maestro-data --mode eeg --split_setting within --window_sec 5 --hop_sec 2.5
 
 # T1 — LOSO
-python scripts/train_aad.py --local_path maestro-data --mode eeg --split_setting loso --window_sec 30 --hop_sec 15
+python scripts/train_aad.py --local_path maestro-data --mode eeg --split_setting loso --window_sec 10 --hop_sec 5
 
 # T2 — hemisphere (LOSO only)
-python scripts/train_hemisphere.py --local_path maestro-data --mode eeg --split_setting loso --window_sec 30 --hop_sec 15
+python scripts/train_hemisphere.py --local_path maestro-data --mode eeg --split_setting loso --window_sec 15 --hop_sec 7.5
 
 # T3 — eccentricity (LOSO only)
-python scripts/train_eccentricity.py --local_path maestro-data --mode eeg --split_setting loso --window_sec 30 --hop_sec 15
+python scripts/train_eccentricity.py --local_path maestro-data --mode eeg --split_setting loso --window_sec 20 --hop_sec 10
 ```
 Repeat with `--mode gaze`, `--mode imu`, `--mode video`. Each run writes checkpoints and a result JSON to `--results` (defaults to `results_{task}` — pass a folder matching the naming convention above if you want it discoverable by `late_fusion.py`'s auto-detection).
 
@@ -203,11 +203,11 @@ Requires the four single-modality checkpoints for a given task/split/window to a
 ```bash
 # One multi-modality combination
 python scripts/late_fusion.py --task aad --split_setting loso --mode eeg_gaze_imu_video \
-    --local_path maestro-data --cache_dir /cache --window_sec 30 --hop_sec 15 --combine learned
+    --local_path maestro-data --cache_dir /cache --window_sec 5 --hop_sec 2.5 --combine learned
 
 # Sweep all 11 multi-modality combinations, plus fold in the 4 existing single-modality results
 python scripts/late_fusion.py --task aad --split_setting loso --mode all \
-    --local_path maestro-data --cache_dir /cache --window_sec 30 --hop_sec 15 \
+    --local_path maestro-data --cache_dir /cache --window_sec 20 --hop_sec 10 \
     --combine learned --skip_existing
 ```
 
@@ -219,7 +219,7 @@ Reuses the already-trained single-modality and late-fusion checkpoints — no re
 
 ```bash
 python scripts/analyze_snr.py --task aad --split_setting loso --local_path maestro-data \
-    --cache_dir /cache --window_sec 30 --hop_sec 15 \
+    --cache_dir /cache --window_sec 15 --hop_sec 7.5 \
     --late_fusion_dir results_late_fusion --results results_snr
 ```
 
@@ -258,13 +258,13 @@ Synchronisation uses the unified timing JSON (`media/timing/`): EEG filtering ru
 
 A multi-encoder causal dilated convolutional network (`model_classification.py` for T1, `model_spatial.py` for T2/T3 — identical encoder design, binary output). Each active modality is processed by a dedicated encoder and projected to a shared embedding width.
 
-| Encoder | Layers | Receptive field |
+| Encoder | Layers |
 |---|---|---|
-| EEG | 7 + 1×1 spatial conv | ~34s |
-| Audio | 7 (shared weights) | ~34s |
-| Gaze | 6 | ~11.4s |
-| IMU | 6 | ~11.4s |
-| Video | 4 | ~1.3s |
+| EEG | 7 + 1×1 spatial conv |
+| Audio | 7 (shared weights) |
+| Gaze | 6 |
+| IMU | 6 |
+| Video | 4 |
 
 **Two distinct ways multi-modality inputs are combined, depending on how the model is invoked:**
 - **Single-modality mode** (`--mode eeg`, etc.): the one active modality's embedding is compared directly against the audio embedding via cosine similarity. This is what every checkpoint under `results/` actually is, and what the paper's four single-modality columns report.
