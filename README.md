@@ -18,7 +18,7 @@ MAESTRO is a 16-subject, 100-trial multimodal auditory attention decoding (AAD) 
 | Gaze + pupillometry | Tobii Pro Glasses 3 | ~50 Hz |
 | IMU (accel + gyro) | Tobii Pro Glasses 3 | ~120 Hz |
 | Egocentric video | Tobii Pro Glasses 3 | 25 fps |
-| Audio (4 speakers + 2 noise) | 3 loudspeaker devices | 16 kHz |
+| Audio (4 speakers + 2 noise) | 6 loudspeakers | 16 kHz |
 
 ---
 
