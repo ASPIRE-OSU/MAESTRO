@@ -6,6 +6,35 @@ Official benchmark code for the **MAESTRO** dataset — the Multimodal Auditory-
 
 ---
 
+> ### ⚠️ Branch `fixes` — leakage-controlled revision
+>
+> The T1 results previously reported by this repository (~0.50 four-way accuracy
+> against a 0.25 chance level) were **not attributable to the physiological
+> recording**. Permuting the recordings across test windows — keeping each
+> window's own audio candidates and its own label — changed accuracy by 0.0009,
+> and substituting zeros for the recording changed it by nothing. The decision
+> was made entirely from the candidate audio, for every modality.
+>
+> Two causes. **The candidate set was acoustically confounded:** the attended
+> talker was prepared differently from its competitors, and the resulting
+> difference in envelope *shape* is invariant to amplitude normalisation, so a
+> logistic probe on eight scale-free statistics identifies the attended talker
+> 56 % of the time from the audio alone. **The scoring function admitted a
+> degenerate optimum:** with a time-constant recording embedding it reduced
+> exactly to a linear classifier on the audio, which is easier to reach than the
+> intended solution.
+>
+> This branch fixes both, rebuilds the encoder, gives the behavioural modalities
+> a task they can perform, and adds the permutation control that was missing.
+> See [What changed](#what-changed-on-this-branch). The previous revision is
+> preserved as `scripts/*_legacy.py` and its outputs as `results_legacy/`.
+>
+> **Report accuracy together with the permutation null and their difference.**
+> An accuracy on its own does not distinguish a decoder that uses the recording
+> from one that reads the candidates.
+
+---
+
 ![MAESTRO experimental setup](media/setup.png)
 
 ## Overview
@@ -303,3 +332,60 @@ If you use MAESTRO in your research, please cite:
 `SPDX-License-Identifier: CC-BY-NC-SA-4.0`
 
 This code and dataset are released under the [Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License (CC BY-NC-SA 4.0)](https://creativecommons.org/licenses/by-nc-sa/4.0/). You are free to share and adapt the material for non-commercial purposes, provided you give appropriate credit and distribute any derivative works under the same license.
+
+---
+
+## What changed on this branch
+
+Six defects, ranked by their measured effect on the *contribution* — the gap
+between real accuracy and accuracy under a permutation of the physiological
+recording, which is the fraction of the number actually attributable to the
+recording.
+
+| # | Defect | Fix | Effect on contribution |
+|---|---|---|---|
+| 1 | **Candidate set acoustically confounded.** The attended talker differs from its competitors in envelope shape, which no amplitude normalisation removes because it is affine-invariant. Audio-only probe: 0.5597 against 0.25 chance. | `quantile_match_candidates` forces all K candidates onto an identical value distribution, so every statistic computed from the value multiset is equal by construction and only the temporal ordering differs. `build_shifted_candidates` offers same-talker temporal negatives, for which the audio-only accuracy is exactly 1/K. | +0.169 → +0.194, and moves the null to chance |
+| 2 | **Scoring function admits a degenerate optimum.** `mean_t[normalize(b) * normalize(a_k)]` followed by a linear layer reduces, for a time-constant `b`, to a linear classifier on the audio alone. | `CouplingHead` centres both signals over time before correlating, so a time-constant embedding scores exactly zero against every candidate and accuracy is pinned at chance. The degenerate solution is unreachable, not merely penalised. | +0.000 → +0.011; also a precondition for fix 4 |
+| 3 | **Encoder badly conditioned.** Receptive field 3⁷ = 2187 samples (34.2 s) against a 640-sample window, so ~85 % of what the deepest layer convolved was padding; no normalisation; a rectifier on the final layer, which confines embeddings to the non-negative orthant where cosine similarity is near 1 by construction; causal direction, though the response follows the stimulus by 100–300 ms. | Dilations `2^i` over 5 layers (RF 63 = 0.98 s), GroupNorm after every convolution, no final activation, centred receptive field. | **+0.000 on its own** |
+| 4 | **Nothing in the objective rewarded using the recording.** Cross-entropy on the four-way decision is a function of the scores only, so the degenerate solution of #2 cost nothing. | `losses.py` adds a contrastive term (which a collapsed encoder cannot minimise — it is pinned at `log B`), hinges requiring the real recording to outscore a permuted and a zero one, an anti-collapse penalty on the per-dimension temporal variance, and an audio-only adversary behind a gradient-reversal layer. | +0.011 → **+0.169** |
+| 5 | **Every modality given the same, wrong task.** Gaze, head IMU and scene video were pushed through the envelope-matching head, but none has a temporal relationship to a speech envelope. | `SpatialHead` predicts the attended loudspeaker and takes **no audio input**, so it cannot shortcut even in principle and its permutation null is exactly 1/K. Modality dropout and per-branch auxiliary losses stop the strongest branch absorbing the gradient. | 0.000 → +0.250 fused |
+| 6 | **No permutation control.** | `evaluation.py`; also position- and trial-stratified nulls, a zeros ablation, a decision-flip rate, a collapse measure, and a lag-band control that separates an evoked response from stimulus bleed. | makes the rest interpretable |
+| — | **Checkpoint selected on validation accuracy**, which is what the shortcut maximises. | Select on the contribution instead. Once the candidates are clean the two criteria agree to within 0.005, so this is a safeguard that is inactive on clean data. | +0.093 → +0.169 at fix 4 |
+
+Ranked: **objective ≫ candidate construction > scoring function ≫ encoder**, the
+last contributing nothing measurable on its own. The failure was not a modelling
+failure. Nothing in the objective asked the model to use the recording, the
+scoring function offered an exact alternative that did not require one, and the
+stimulus material made that alternative sufficient.
+
+### Verifying the fix
+
+`scripts/dataloader.py` runs an audio-only probe at startup and prints it before
+training. It fits a logistic classifier on eight affine-invariant shape
+statistics of the candidate envelopes, on content-disjoint folds, and takes the
+per-window argmax. A construction free of acoustic confounding must land near
+`1/K`:
+
+| Construction | K | Probe | Chance |
+|---|---|---|---|
+| `raw` (previous) | 4 | 0.5597 | 0.2500 |
+| `qmatch` (default) | 4 | 0.2600 | 0.2500 |
+| `shifted_qm` | 3 | 0.3571 | 0.3333 |
+| `shifted_qm` | 2 | **0.5002** | **0.5000** |
+
+### Running
+
+```bash
+# default: distribution-matched candidates, permutation battery reported
+python scripts/train_aad.py --local_path <dataset> --mode eeg     --split_setting within --window_sec 10 --hop_sec 5
+
+# reproduce the previous, confounded construction for comparison
+python scripts/train_aad.py --local_path <dataset> --mode eeg     --split_setting within --window_sec 10 --hop_sec 5 --candidates raw
+
+# same-talker temporal negatives: the only fully confound-free construction
+python scripts/train_aad.py --local_path <dataset> --mode eeg     --split_setting within --candidates shifted_qm --n_candidates 2
+```
+
+`--dataset_cache <dir>` memoises the assembled dataset, which is worth setting
+when sweeping windows: the per-trial cache does not store audio envelopes, so
+they are otherwise re-extracted from FLAC on every run.

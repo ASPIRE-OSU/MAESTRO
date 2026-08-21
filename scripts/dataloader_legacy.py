@@ -17,7 +17,7 @@ import soundfile as sf
 import torch
 from scipy.interpolate import interp1d
 from scipy.signal import butter, hilbert, iirnotch, filtfilt, resample_poly, sosfiltfilt
-from torch.utils.data import Dataset, Sampler
+from torch.utils.data import Dataset
 
 # ── constants ─────────────────────────────────────────────────────────────────
 
@@ -239,179 +239,17 @@ def preprocess_eeg(eeg_raw: np.ndarray,
 
 def extract_envelope(audio: np.ndarray, fs_in: int = AUDIO_FS_RAW,
                      target_rms: float | None = None) -> np.ndarray:
-    """Speech amplitude envelope, standardised.
 
-    NOTE ON `target_rms`.  This argument is a NO-OP and is retained only for
-    call-site compatibility.  Every step below is linear, so E(alpha*x) =
-    alpha*E(x); and the closing z-score is invariant to any affine map, so
-    Z(alpha*e) = Z(e).  Composing, Z(E(alpha*x)) = Z(E(x)): a level difference
-    is removed EXACTLY by the z-score alone, whether or not this prescale runs.
-    Verified on real recordings -- scaling by +-15 dB changes the returned array
-    by at most 1.6e-05, i.e. float32 rounding.
-
-    The consequence is important and was previously missed.  Because a pure
-    level difference provably cannot survive, the acoustic cue that let a
-    decoder identify the attended talker without any physiological input is NOT
-    loudness.  It is a difference in the SHAPE of the envelope distribution
-    (kurtosis, skew, sparsity, dynamic range), which is invariant to affine
-    rescaling and therefore passes through untouched.  No per-candidate
-    normalisation can remove it; see `quantile_match_candidates`.
-    """
     audio = audio.astype(np.float64)
     if target_rms is not None:
         current_rms = np.sqrt(np.mean(audio ** 2)) + 1e-8
-        audio = audio * (target_rms / current_rms)   # cancelled by _zscore below
+        audio = audio * (target_rms / current_rms)
 
     env = np.abs(hilbert(audio)).astype(np.float32)
     sos = _butter_lp(20.0, fs_in)
     env = sosfiltfilt(sos, env).astype(np.float32)
     env = _resample(env, fs_in, TARGET_FS)
     return _zscore(env)[:, np.newaxis]
-
-
-# ── candidate construction ─────────────────────────────────────────────────────
-
-def quantile_match_candidates(A: np.ndarray, chunk: int = 1000) -> np.ndarray:
-    """Force the K candidates of each window onto a common value distribution.
-
-    A : (N, K, T) standardised envelopes -> (N, K, T)
-
-    In this stimulus material the attended talker was prepared differently from
-    its competitors: it is ~15 dB louder, and -- because that difference is one
-    of dynamics rather than gain (crest factor differs by 9.4 dB, and crest is
-    gain-invariant) -- it also has systematically lower kurtosis, lower skew,
-    lower temporal sparsity and a wider inter-quantile range.  Those statistics
-    are affine-invariant, so they survive the z-score in `extract_envelope`, and
-    a logistic probe on eight such features picks the attended talker 56 % of
-    the time on content-disjoint folds against a 25 % chance level -- more than
-    the network itself extracts from EEG.  No subject or content split removes
-    this, because it is a property of the target ROLE.
-
-    The remedy: replace each candidate's samples by the shared "vocabulary" of
-    values `ref` (the average order statistics of the K candidates), indexed by
-    that candidate's own ranks.  Every candidate then holds an identical multiset
-    of values, so every statistic computed from the value multiset -- all
-    moments, all quantiles, kurtosis, skew, Gini sparsity, dynamic range,
-    silence fraction -- is identical across candidates by construction.  Only
-    the temporal ORDERING differs, which is exactly the property a neural
-    response tracks.
-
-    Residual: relative band powers depend on ordering and therefore survive, so
-    the audio-only probe lands at 0.26 rather than exactly 0.25.  Any operation
-    that also flattened the spectra would destroy the signal of interest.  The
-    fully confound-free alternative is same-talker temporal negatives
-    (`build_shifted_candidates`), whose probe is 0.5002 against 0.5000.
-    """
-    N, K, T = A.shape
-    out = np.empty_like(A, dtype=np.float32)
-    ar = np.arange(T)
-    for s0 in range(0, N, chunk):
-        a = A[s0:s0 + chunk]
-        n = a.shape[0]
-        order = np.argsort(a, axis=2, kind="stable")
-        ranks = np.empty_like(order)
-        np.put_along_axis(ranks, order, np.broadcast_to(ar, (n, K, T)), axis=2)
-        ref = np.sort(a, axis=2).mean(axis=1, keepdims=True)          # (n,1,T)
-        matched = np.take_along_axis(np.broadcast_to(ref, (n, K, T)),
-                                     ranks, axis=2)
-        mu = matched.mean(axis=2, keepdims=True)
-        sd = matched.std(axis=2, keepdims=True) + 1e-8
-        out[s0:s0 + chunk] = ((matched - mu) / sd).astype(np.float32)
-    return out
-
-
-def build_shifted_candidates(trial_ids: np.ndarray, window_sec: float,
-                             hop_sec: float, n_neg: int = 2,
-                             seed: int = 0) -> tuple:
-    """Same-talker temporal negatives: the fully confound-free construction.
-
-    For each window, the positive is the attended talker's envelope on that
-    window and the negatives are the SAME talker's envelope on non-overlapping
-    windows of the same trial.  The candidates are then exchangeable, so the
-    audio-only Bayes accuracy is exactly 1/K.
-
-    Two details that matter.  Negatives are drawn UNIFORMLY among the admissible
-    windows: taking the temporally furthest one biases them toward trial edges,
-    whose onset/offset statistics are themselves distinctive, and that alone
-    lifted the audio-only probe to 0.60 on a chance-0.50 task.  And a negative
-    must never overlap the positive -- with hop < window it would be partly
-    correct -- so K is reduced rather than allowing overlap.  A 30 s trial at
-    window/hop = 2 yields five windows, supporting at most two disjoint
-    negatives.
-
-    Returns (imposter_idx (N, n_neg), n_fallback).
-    """
-    gap = max(1, int(np.ceil(window_sec / hop_sec)))
-    out = np.full((len(trial_ids), n_neg), -1, dtype=np.int64)
-    rng = np.random.default_rng(seed)
-    n_fallback = 0
-    for t in np.unique(trial_ids):
-        idx = np.where(trial_ids == t)[0]        # contiguous, temporal order
-        n = len(idx)
-        for p in range(n):
-            valid = [q for q in range(n) if abs(q - p) >= gap]
-            rng.shuffle(valid)
-            if len(valid) < n_neg:
-                n_fallback += 1
-                extra = [q for q in range(n) if q != p and q not in valid]
-                valid = valid + list(rng.permutation(extra))
-            if not valid:                        # single-window trial
-                out[idx[p]] = idx[p]
-                continue
-            pick = (valid * n_neg)[:n_neg]
-            out[idx[p]] = idx[np.asarray(pick)]
-    assert (out >= 0).all(), "imposter index not assigned"
-    return out, n_fallback
-
-
-def make_candidate_bank(data: dict, construction: str = "qmatch",
-                        window_sec: float = WINDOW_SEC,
-                        hop_sec: float | None = None,
-                        n_cand: int = N_SPEAKERS, seed: int = 0) -> dict:
-    """Assemble the candidate arrays once for the whole dataset.
-
-    construction:
-      "raw"        the K co-present talkers, standardised.  CONFOUNDED -- an
-                   audio-only probe reaches 0.56 against 0.25 chance.  Retained
-                   only for reproducing the previous result.
-      "qmatch"     the same K talkers, distribution-matched.  DEFAULT.
-      "shifted"    same-talker temporal negatives.
-      "shifted_qm" same-talker negatives, additionally distribution-matched.
-
-    Returns {"construction", "A": (N,K,T), "pos": (N,), "spk_meaningful": bool}
-    where `pos[i]` indexes the correct candidate and `spk_meaningful` records
-    whether candidate index still corresponds to a loudspeaker (it does not for
-    same-talker constructions, where every candidate is the same talker).
-    """
-    hop_sec = hop_sec if hop_sec is not None else window_sec
-    N = len(data["trial_ids"])
-
-    if construction in ("raw", "qmatch"):
-        A = np.stack([data["audio"][k][:, :, 0] for k in range(n_cand)], axis=1)
-        if construction == "qmatch":
-            A = quantile_match_candidates(A)
-        return {"construction": construction,
-                "A": np.ascontiguousarray(A, dtype=np.float32),
-                "pos": data["att_idxs"].astype(np.int64),
-                "spk_meaningful": True}
-
-    if construction in ("shifted", "shifted_qm"):
-        att = np.stack([data["audio"][a][i, :, 0]
-                        for i, a in enumerate(data["att_idxs"])]).astype(np.float32)
-        imp, n_fb = build_shifted_candidates(data["trial_ids"], window_sec,
-                                             hop_sec, n_neg=n_cand - 1, seed=seed)
-        A = np.stack([att] + [att[imp[:, j]] for j in range(n_cand - 1)], axis=1)
-        if construction == "shifted_qm":
-            A = quantile_match_candidates(A)
-        if n_fb:
-            print(f"  shifted candidates: {n_fb} windows ({100*n_fb/max(N,1):.1f} %) "
-                  f"needed the overlap fallback")
-        return {"construction": construction,
-                "A": np.ascontiguousarray(A, dtype=np.float32),
-                "pos": np.zeros(N, dtype=np.int64),
-                "spk_meaningful": False}
-
-    raise ValueError(f"unknown construction: {construction}")
 
 
 # ── video optical flow ─────────────────────────────────────────────────────────
@@ -935,69 +773,6 @@ def build_dataset(local_path: str,
     return dataset
 
 
-def build_dataset_cached(local_path: str, mode: str, cache_dir: str | None,
-                         window_sec: float, hop_sec: float | None = None,
-                         dataset_cache: str | None = None, **kwargs) -> dict:
-    """`build_dataset` memoised to a single .npz.
-
-    The per-trial cache under `cache_dir` stores preprocessed signals but not the
-    audio envelopes, which are re-extracted from FLAC on every build -- ~6400
-    reads per call.  When sweeping windows and modality sets that dominates the
-    runtime, so the assembled dataset is memoised here as well.  Keyed by mode,
-    window and hop; delete the .npz to force a rebuild.
-    """
-    if dataset_cache is None:
-        return build_dataset(local_path=local_path, mode=mode,
-                             cache_dir=cache_dir, window_sec=window_sec,
-                             hop_sec=hop_sec, **kwargs)
-
-    hop = hop_sec if hop_sec is not None else window_sec
-    path = os.path.join(dataset_cache,
-                        f"dataset__{mode}_w{window_sec:g}_h{hop:g}.npz")
-    if os.path.exists(path):
-        print(f"[build] {mode} w={window_sec:g} <- cached {path}", flush=True)
-        z = np.load(path, allow_pickle=False)
-        d = {k: z[k] for k in z.files if not k.startswith("audio_")}
-        d["audio"] = [z[f"audio_{i}"] for i in range(N_SPEAKERS)]
-        for k in ("eeg", "video", "gaze", "imu"):
-            d.setdefault(k, None)
-        return d
-
-    d = build_dataset(local_path=local_path, mode=mode, cache_dir=cache_dir,
-                      window_sec=window_sec, hop_sec=hop_sec, **kwargs)
-    os.makedirs(dataset_cache, exist_ok=True)
-    save = {k: v for k, v in d.items() if k != "audio" and v is not None}
-    save["trial_meta_tid"] = save["trial_meta_tid"].astype("<U24")
-    save.update({f"audio_{i}": a for i, a in enumerate(d["audio"])})
-    tmp = f"{path}.{os.getpid()}.tmp.npz"
-    np.savez(tmp, **save)
-    os.replace(tmp, path)
-    print(f"[build] cached -> {path}", flush=True)
-    return d
-
-
-def subject_per_window(data: dict) -> np.ndarray:
-    """Listener id for every window."""
-    return data["trial_meta_subject"][
-        np.searchsorted(data["trial_meta_ids"], data["trial_ids"])]
-
-
-def content_per_window(data: dict) -> np.ndarray:
-    """Stimulus-content id for every window."""
-    return data["trial_meta_tid"][
-        np.searchsorted(data["trial_meta_ids"], data["trial_ids"])]
-
-
-def position_in_trial(data: dict) -> np.ndarray:
-    """Index of each window within its trial, for the position-stratified null."""
-    tr = data["trial_ids"]
-    _, first = np.unique(tr, return_index=True)
-    start = np.zeros(len(tr), dtype=np.int64)
-    start[first] = first
-    np.maximum.accumulate(start, out=start)
-    return np.arange(len(tr)) - start
-
-
 # ── K-fold splitting ───────────────────────────────────────────────────────────
 
 def get_trial_level_splits(data: dict, n_splits: int = 5, seed: int = 42,
@@ -1145,170 +920,54 @@ def carve_inner_val_content(data: dict, window_idx: np.ndarray,
 # ── PyTorch Dataset ────────────────────────────────────────────────────────────
 
 class AADDataset(Dataset):
-    """Windows plus their candidate set.
 
-    Differences from the previous revision:
-      * candidates come from a `bank` built by `make_candidate_bank`, so the
-        acoustic confound can be removed (see `quantile_match_candidates`);
-      * returns the candidate PERMUTATION, so an orientation head predicting a
-        fixed loudspeaker index can be mapped into slot order;
-      * returns the SUBJECT id, so the contrastive loss can restrict its
-        in-batch negatives to one listener -- raw EEG identifies the listener
-        with 0.90 accuracy (16-way, chance 0.0625), so a cross-listener batch is
-        solved by identity alone and teaches nothing about attention;
-      * the label is an integer index rather than a one-hot vector.
-    """
-
-    def __init__(self, data: dict, window_idx: np.ndarray, bank: dict,
-                 train: bool = True, n_cand: int = N_SPEAKERS):
-        self.gidx = np.asarray(window_idx)
+    def __init__(self, data: dict, window_idx: np.ndarray,
+                 train: bool = True):
+        idx        = window_idx
         self.train = train
-        self.K = n_cand
-        self.eeg   = torch.from_numpy(data["eeg"][self.gidx])   \
+        self.eeg   = torch.from_numpy(data["eeg"][idx])   \
                      if data["eeg"]   is not None else None
-        self.video = torch.from_numpy(data["video"][self.gidx]) \
+        self.video = torch.from_numpy(data["video"][idx]) \
                      if data["video"] is not None else None
-        self.gaze  = torch.from_numpy(data["gaze"][self.gidx])  \
+        self.gaze  = torch.from_numpy(data["gaze"][idx])  \
                      if data["gaze"]  is not None else None
-        self.imu   = torch.from_numpy(data["imu"][self.gidx])   \
+        self.imu   = torch.from_numpy(data["imu"][idx])   \
                      if data["imu"]   is not None else None
-        self.A     = torch.from_numpy(bank["A"][self.gidx])      # (n, K, T)
-        self.pos   = bank["pos"][self.gidx]
-        self.spk_meaningful = bank["spk_meaningful"]
-        self.att_idxs = data["att_idxs"][self.gidx].astype(np.int64)
-        self.subject  = subject_per_window(data)[self.gidx].astype(np.int64)
+        self.audio    = [torch.from_numpy(data["audio"][i][idx])
+                         for i in range(N_SPEAKERS)]
+        self.att_idxs = data["att_idxs"][idx]
 
     def __len__(self):
-        return len(self.gidx)
+        return len(self.audio[0])
 
-    def _perm(self, i):
-        if self.train:
-            return torch.randperm(self.K)
-        # deterministic at eval, seeded by the GLOBAL window index so every
-        # configuration under comparison sees the identical slot assignment
-        return torch.from_numpy(
-            np.random.default_rng(int(self.gidx[i])).permutation(self.K))
-
-    def __getitem__(self, i):
-        perm  = self._perm(i)
-        cands = self.A[i][perm]                                  # (K, T)
-        label = int((perm == int(self.pos[i])).nonzero()[0].item())
-        spk_of_slot = (perm.clone() if self.spk_meaningful else
-                       torch.full((self.K,), int(self.att_idxs[i]),
-                                  dtype=torch.long))
+    def __getitem__(self, idx):
+        att_idx = int(self.att_idxs[idx])
+        perm    = torch.randperm(N_SPEAKERS) if self.train else \
+                  torch.from_numpy(
+                      np.random.default_rng(idx).permutation(N_SPEAKERS))
+        audio        = [self.audio[perm[i]][idx] for i in range(N_SPEAKERS)]
+        attended_pos = int((perm == att_idx).nonzero(as_tuple=False)[0].item())
+        label        = torch.zeros(N_SPEAKERS, dtype=torch.float32)
+        label[attended_pos] = 1.0
         return (
-            self.eeg[i]   if self.eeg   is not None else None,
-            self.video[i] if self.video is not None else None,
-            self.gaze[i]  if self.gaze  is not None else None,
-            self.imu[i]   if self.imu   is not None else None,
-            cands.unsqueeze(-1).contiguous(),                    # (K, T, 1)
-            label, spk_of_slot, int(self.att_idxs[i]), int(self.subject[i]),
+            self.eeg[idx]   if self.eeg   is not None else None,
+            self.video[idx] if self.video is not None else None,
+            self.gaze[idx]  if self.gaze  is not None else None,
+            self.imu[idx]   if self.imu   is not None else None,
+            audio,
+            label,
         )
-
-
-class SubjectBatchSampler(Sampler):
-    """Every batch is drawn from a single listener.
-
-    The contrastive term's in-batch negatives must be within-listener; see the
-    AADDataset docstring.
-    """
-
-    def __init__(self, subjects, batch_size, shuffle=True, seed=0, min_batch=4):
-        self.groups = [np.where(subjects == s)[0] for s in np.unique(subjects)]
-        self.bs, self.shuffle = batch_size, shuffle
-        self.seed, self.min_batch = seed, min_batch
-        self.epoch = 0
-
-    def __iter__(self):
-        rng = np.random.default_rng(self.seed + self.epoch)
-        self.epoch += 1
-        batches = []
-        for g in self.groups:
-            g = g.copy()
-            if self.shuffle:
-                rng.shuffle(g)
-            for s0 in range(0, len(g), self.bs):
-                b = g[s0:s0 + self.bs]
-                if len(b) >= self.min_batch:
-                    batches.append(b.tolist())
-        if self.shuffle:
-            rng.shuffle(batches)
-        return iter(batches)
-
-    def __len__(self):
-        return sum(max(0, len(g) // self.bs) for g in self.groups)
 
 
 def collate_fn(batch):
     def _stack(i):
         return torch.stack([b[i] for b in batch]) \
                if batch[0][i] is not None else None
-    cands = torch.stack([b[4] for b in batch])                   # (B, K, T, 1)
     return (
-        _stack(0), _stack(1), _stack(2), _stack(3),
-        [cands[:, k] for k in range(cands.shape[1])],            # K x (B, T, 1)
-        torch.tensor([b[5] for b in batch], dtype=torch.long),   # label
-        torch.stack([b[6] for b in batch]),                      # spk_of_slot
-        torch.tensor([b[7] for b in batch], dtype=torch.long),   # attended spk
-        torch.tensor([b[8] for b in batch], dtype=torch.long),   # subject
+        _stack(0),
+        _stack(1),
+        _stack(2),
+        _stack(3),
+        [torch.stack([b[4][i] for b in batch]) for i in range(N_SPEAKERS)],
+        torch.stack([b[5] for b in batch]),
     )
-
-
-# ── audio-only acceptance probe ────────────────────────────────────────────────
-
-def _shape_features(E: np.ndarray) -> np.ndarray:
-    """Eight affine-invariant shape statistics of standardised envelopes.
-
-    Affine-invariant means unchanged by x -> a*x + b, so these survive the
-    z-score in `extract_envelope` untouched.  That is precisely why level
-    normalisation cannot remove the confound and this probe is needed.
-    E: (M, T) -> (M, 8)
-    """
-    from scipy.signal import welch
-    from scipy.stats import kurtosis, skew
-    M, T = E.shape
-    p5, p95 = np.percentile(E, [5, 95], axis=1)
-    f, P = welch(E, fs=TARGET_FS, nperseg=min(256, T), axis=1)
-    tot = P.sum(1) + 1e-12
-
-    def band(lo, hi):
-        return P[:, (f >= lo) & (f < hi)].sum(1) / tot
-
-    a = np.sort(np.abs(E), axis=1)
-    w = np.arange(1, T + 1)
-    gini = 2 * (a * w).sum(1) / (T * a.sum(1) + 1e-12) - (T + 1) / T
-    return np.stack([kurtosis(E, axis=1), skew(E, axis=1), p95 - p5,
-                     (E < -0.5).mean(1), band(0.5, 4), band(4, 8),
-                     band(8, 20), gini], axis=1).astype(np.float64)
-
-
-def audio_only_probe(bank: dict, groups: np.ndarray,
-                     n_splits: int = 5) -> float:
-    """Can the correct candidate be identified from the AUDIO ALONE?
-
-    Fits a logistic classifier on the shape statistics above, on
-    content-disjoint folds, then takes the per-window argmax over candidates.
-    A construction free of acoustic confounding must score 1/K.
-
-    This is model-independent and should be run BEFORE training: it certifies
-    the task, not the network.  Reference values on this dataset --
-    raw 0.5597 (chance 0.25), qmatch 0.2600, shifted_qm binary 0.5002
-    (chance 0.50).
-    """
-    from sklearn.linear_model import LogisticRegression
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.model_selection import GroupKFold
-
-    A, labels = bank["A"], bank["pos"]
-    N, K, T = A.shape
-    X = _shape_features(A.reshape(N * K, T))
-    y = np.zeros(N * K, dtype=np.int64)
-    y[np.arange(N) * K + labels] = 1
-    g = np.repeat(groups, K)
-
-    oof = np.zeros(N * K)
-    for tr, te in GroupKFold(n_splits=n_splits).split(X, y, groups=g):
-        sc = StandardScaler().fit(X[tr])
-        clf = LogisticRegression(max_iter=2000).fit(sc.transform(X[tr]), y[tr])
-        oof[te] = clf.predict_proba(sc.transform(X[te]))[:, 1]
-    return float((oof.reshape(N, K).argmax(1) == labels).mean())
