@@ -28,9 +28,22 @@ import re
 
 import numpy as np
 
-MODE_ORDER = ["eeg", "eeg_imu", "eeg_video", "eeg_gaze"]
-MODE_LABEL = {"eeg": "EEG", "eeg_imu": "EEG+IMU",
-              "eeg_video": "EEG+Video", "eeg_gaze": "EEG+Gaze"}
+MODE_ORDER = ["eeg", "gaze", "imu", "video",
+              "eeg_gaze", "eeg_imu", "eeg_video",
+              "gaze_imu", "gaze_video", "imu_video",
+              "eeg_gaze_imu", "eeg_gaze_video", "eeg_imu_video",
+              "gaze_imu_video", "eeg_gaze_imu_video"]
+MODE_LABEL = {"eeg": "EEG", "gaze": "Gaze", "imu": "IMU", "video": "Video",
+              "eeg_gaze": "EEG+Gaze", "eeg_imu": "EEG+IMU",
+              "eeg_video": "EEG+Video", "gaze_imu": "Gaze+IMU",
+              "gaze_video": "Gaze+Video", "imu_video": "IMU+Video",
+              "eeg_gaze_imu": "EEG+Gaze+IMU",
+              "eeg_gaze_video": "EEG+Gaze+Video",
+              "eeg_imu_video": "EEG+IMU+Video",
+              "gaze_imu_video": "Gaze+IMU+Video",
+              "eeg_gaze_imu_video": "EEG+Gaze+IMU+Video"}
+# row groups as the paper prints them: singles / pairs / triples / all
+GROUPS = [MODE_ORDER[0:4], MODE_ORDER[4:10], MODE_ORDER[10:14], MODE_ORDER[14:]]
 WINDOW_ORDER = [5.0, 10.0, 15.0, 20.0, 30.0]
 
 
@@ -85,13 +98,16 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("root")
     ap.add_argument("--markdown", default=None)
+    ap.add_argument("--latex", default=None,
+                    help="Also emit rows in the paper's table format: "
+                         "Mode & within w5..w30 & loso w5..w30.")
     args = ap.parse_args()
 
     runs = load(args.root)
     have = len(runs)
     out = []
     out.append("# T1 — four-class attended-talker decoding\n")
-    out.append(f"{have} / 40 runs present. Chance = 0.2500. Candidates are "
+    out.append(f"{have} / {len(MODE_ORDER)*len(WINDOW_ORDER)*2} runs present. Chance = 0.2500. Candidates are "
                "distribution-matched (`qmatch`), so the audio-only floor is at "
                "chance; see the probe value in each run's JSON.\n")
 
@@ -130,6 +146,34 @@ def main():
 
     text = "\n".join(out)
     print(text)
+    if args.latex:
+        blocks = []
+        for metric, signed in (("accuracy", False), ("contribution", True)):
+            blocks.append(f"% ---- T1 / {metric}: within (5 cols) then loso "
+                          f"(5 cols) ----")
+            for gi, grp in enumerate(GROUPS):
+                for mode in grp:
+                    cells = []
+                    for split in ("within", "loso"):
+                        for w in WINDOW_ORDER:
+                            d = runs.get((mode, w, split))
+                            v = cell(d, metric)
+                            sd = (d["mean"][metric][1]
+                                  if d and metric in d.get("mean", {}) else None)
+                            if v is None:
+                                cells.append("---")
+                            elif signed:
+                                cells.append(f"${100*v:+.2f}$")
+                            else:
+                                cells.append(f"{100*v:.2f}$\\pm${100*sd:.2f}")
+                    blocks.append(f"{MODE_LABEL[mode]} & " + " & ".join(cells)
+                                  + r" \\")
+                if gi < len(GROUPS) - 1:
+                    blocks.append(r"\midrule")
+        os.makedirs(os.path.dirname(os.path.abspath(args.latex)) or ".",
+                    exist_ok=True)
+        open(args.latex, "w").write("\n".join(blocks) + "\n")
+        print(f"\nsaved -> {args.latex}")
     if args.markdown:
         os.makedirs(os.path.dirname(os.path.abspath(args.markdown)), exist_ok=True)
         with open(args.markdown, "w") as f:

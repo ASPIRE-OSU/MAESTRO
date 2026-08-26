@@ -1312,3 +1312,86 @@ def audio_only_probe(bank: dict, groups: np.ndarray,
         clf = LogisticRegression(max_iter=2000).fit(sc.transform(X[tr]), y[tr])
         oof[te] = clf.predict_proba(sc.transform(X[te]))[:, 1]
     return float((oof.reshape(N, K).argmax(1) == labels).mean())
+
+
+# ── T2 / T3 grouped candidate references ──────────────────────────────────────
+
+# Speaker index (0-based) -> group, for the two binary spatial tasks.
+# T2 hemisphere : S1,S2 = left(0), S3,S4 = right(1)
+# T3 eccentricity: S2,S3 = inner(0), S1,S4 = outer(1)
+SPATIAL_GROUPS = {
+    "hemisphere":   {0: 0, 1: 0, 2: 1, 3: 1},
+    "eccentricity": {0: 1, 1: 0, 2: 0, 3: 1},
+}
+SPATIAL_GROUP_NAMES = {
+    "hemisphere":   ("left", "right"),
+    "eccentricity": ("inner", "outer"),
+}
+
+
+def group_labels(att_idxs: np.ndarray, task: str) -> np.ndarray:
+    """Attended loudspeaker index (0..3) -> binary group label for `task`."""
+    g = SPATIAL_GROUPS[task]
+    return np.array([g[int(i)] for i in att_idxs], dtype=np.int64)
+
+
+def make_grouped_candidate_bank(data: dict, task: str,
+                                construction: str = "qmatch") -> dict:
+    """Candidate bank for the binary spatial tasks T2 and T3.
+
+    The task's two references are the per-group MEANS of the four co-present
+    talker envelopes, as in the original formulation:
+
+        T2   a_left  = (a_1 + a_2)/2      a_right = (a_3 + a_4)/2
+        T3   a_inner = (a_2 + a_3)/2      a_outer = (a_1 + a_4)/2
+
+    WHY THIS NEEDS THE SAME TREATMENT AS T1.  The attended talker is prepared
+    differently from its competitors -- not by gain (crest factor, which no gain
+    can alter, differs by 9.4 dB) but in the SHAPE of its amplitude envelope,
+    and shape statistics are invariant to affine rescaling, so they survive the
+    per-candidate z-score untouched.  Averaging two talkers does not remove
+    that: whichever reference contains the attended talker inherits its
+    signature, and the task is binary, so a decoder with a learned audio encoder
+    only has to decide which of two references looks "attended".  Left
+    unaddressed this is a strictly easier shortcut than in T1.
+
+    construction:
+      "raw"     the two group means, standardised.  CONFOUNDED; retained only to
+                reproduce the previous revision.
+      "qmatch"  the two group means, distribution-matched (default).  Both
+                references then carry the identical multiset of values -- same
+                kurtosis, skew, sparsity, dynamic range, silence fraction --
+                and differ only in temporal ordering, which is the property a
+                neural response tracks.
+
+    Returns the same structure as `make_candidate_bank`, with K = 2 and `pos`
+    the attended group, so `AADDataset` consumes it unchanged.
+    """
+    if task not in SPATIAL_GROUPS:
+        raise ValueError(f"unknown task '{task}'; expected one of "
+                         f"{tuple(SPATIAL_GROUPS)}")
+    if construction not in ("raw", "qmatch"):
+        raise ValueError("grouped references support 'raw' or 'qmatch' only; "
+                         "same-talker negatives are not defined for a task "
+                         "whose classes are spatial groups")
+
+    members = {0: [], 1: []}
+    for spk, grp in SPATIAL_GROUPS[task].items():
+        members[grp].append(spk)
+
+    A = np.stack([
+        np.mean([data["audio"][s][:, :, 0] for s in members[g]], axis=0)
+        for g in (0, 1)
+    ], axis=1).astype(np.float32)                       # (N, 2, T)
+
+    # standardise each reference, then (optionally) equalise their marginals
+    mu = A.mean(axis=2, keepdims=True)
+    sd = A.std(axis=2, keepdims=True) + 1e-8
+    A = (A - mu) / sd
+    if construction == "qmatch":
+        A = quantile_match_candidates(A)
+
+    return {"construction": f"{task}_{construction}",
+            "A": np.ascontiguousarray(A, dtype=np.float32),
+            "pos": group_labels(data["att_idxs"], task),
+            "spk_meaningful": True}

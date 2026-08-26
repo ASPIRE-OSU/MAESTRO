@@ -1,33 +1,53 @@
 """
-analyze_snr.py
-----------------
+analyze_snr.py — SNR-stratified benchmark analysis, T1.
+
+WHAT CHANGED, AND WHY
+---------------------
+The previous revision reported T1 accuracy per SNR bin and nothing else. Read
+on its own, a rising accuracy-versus-SNR curve looks like "decoding gets easier
+as the mixture gets easier". It cannot mean that unless the *floor* is flat, and
+on this corpus there is no reason to assume it is: the cue that identifies the
+attended talker acoustically -- an affine-invariant difference in the shape of
+its amplitude envelope, which survives per-candidate standardisation -- lives in
+the same mixture whose SNR is being varied. A curve without its floor cannot
+distinguish "the brain tracks better at high SNR" from "the shortcut is easier
+at high SNR".
+
+This revision therefore reports THREE numbers per SNR bin:
+
+    accuracy      what the decoder scores on that bin's windows
+    permuted      what it scores on the same windows when each is given
+                  ANOTHER window's recording, keeping its own candidates and
+                  its own label -- the bin's audio-only floor
+    contribution  accuracy - permuted, the part attributable to the recording
+
+It also evaluates the models trained by the fixed `train_aad.py` (loading the
+per-fold checkpoints those runs saved) rather than the late-fusion combiner of
+frozen single-modality models, which no longer exists: under the fixed
+architecture, fusion happens inside the model through modality dropout and a
+fusion head, so there is no separate combiner to train.
 
 Usage
 -----
-  # T1 (aad), within-subject split, 30s window
-  python analyze_snr.py --task aad --split_setting within \\
-      --window_sec 30 --hop_sec 30 \\
-      --local_path maestro --cache_dir cache --results results_snr
-
-  # LOSO, 10s window
-  python analyze_snr.py --task aad --split_setting loso \\
+  python analyze_snr.py --mode eeg --split_setting loso \\
       --window_sec 10 --hop_sec 5 \\
-      --local_path maestro --cache_dir cache --results results_snr
+      --local_path <dataset> --cache_dir <cache> --dataset_cache <dscache> \\
+      --model_root /fs/scratch/.../fixbranch_results/res \\
+      --results results_snr
 
-  # Sweep every window size for LOSO (bash)
+  # every window size, one mode
   for w in 5 10 15 20 30; do
     h=$(python3 -c "print($w/2)")
-    python analyze_snr.py --task aad --split_setting loso \\
-        --window_sec $w --hop_sec $h \\
-        --local_path maestro --cache_dir cache --results results_snr
+    python analyze_snr.py --mode eeg --split_setting loso \\
+        --window_sec $w --hop_sec $h ... ;
   done
-
 """
 
-import os
-import json
 import argparse
-from collections import defaultdict
+import json
+import os
+import re
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
@@ -35,501 +55,223 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader
 
-from dataloader import (load_trial, mode_uses, VALID_MODES, N_SPEAKERS,
-                        load_official_splits, get_official_split_windows,
-                        carve_inner_val, carve_inner_val_content,
+from dataloader import (build_dataset_cached, AADDataset, collate_fn,
+                        make_candidate_bank, load_official_splits,
+                        get_official_split_windows,
                         compute_global_content_holdout,
+                        content_per_window, position_in_trial,
+                        N_SPEAKERS, VALID_MODES,
                         WINDOW_SEC as dl_WINDOW_SEC)
-from late_fusion import (LateFusionCombiner, train_combiner, evaluate_combined,
-                         _active_modalities, _single_modality_forward, _to,
-                         _MeanCombiner, _ckpt_path, _load_task,
-                         ALL_SINGLE_MODES, MULTI_MODALITY_MODES)
-
-SEED = 42
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-CANONICAL_MODES = ALL_SINGLE_MODES + MULTI_MODALITY_MODES   # all 15, for reference/validation only
-
-MODE_DISPLAY = {
-    "eeg": "EEG", "gaze": "Gaze", "imu": "IMU", "video": "Video",
-    "eeg_gaze": "EEG+Gaze", "eeg_imu": "EEG+IMU", "eeg_video": "EEG+Video",
-    "gaze_imu": "Gaze+IMU", "gaze_video": "Gaze+Video", "imu_video": "IMU+Video",
-    "eeg_gaze_imu": "EEG+Gaze+IMU", "eeg_gaze_video": "EEG+Gaze+Video",
-    "eeg_imu_video": "EEG+IMU+Video", "gaze_imu_video": "Gaze+IMU+Video",
-    "eeg_gaze_imu_video": "EEG+Gaze+IMU+Video",
-}
+from model_classification import AADModel
+from evaluation import Evaluator
+from train_aad import SEED, DEVICE, MODE_LABELS
 
 
-# ── quantile-based SNR binning (unchanged from the original script) ────────────
-# SNR is normally distributed across trials, so equal-width dB bins leave the
-# tails with very few windows -- equal-COUNT (quantile) bins keep every bin's
-# accuracy estimate comparably reliable, at the cost of each bin spanning a
+# ── quantile-based SNR binning (unchanged from the previous revision) ──────────
+# SNR is approximately normally distributed across trials, so equal-width dB
+# bins leave the tails with very few windows; equal-COUNT (quantile) bins keep
+# every bin's estimate comparably reliable, at the cost of each bin spanning a
 # different, data-driven dB range.
 
 def compute_snr_bins(snr_values: np.ndarray, n_bins: int) -> np.ndarray:
-    """Returns n_bins+1 bin edges with roughly equal counts of snr_values.
-    Computed ONCE from the full dataset (not per-fold, not per-mode), so
-    "bin 0" means the same SNR range everywhere results are compared."""
-    quantiles = np.linspace(0, 100, n_bins + 1)
-    edges = np.percentile(snr_values, quantiles)
-    edges[0]  -= 1e-6
+    """n_bins+1 edges with roughly equal counts. Computed ONCE from the full
+    dataset, so "bin 0" means the same SNR range everywhere results are
+    compared."""
+    edges = np.percentile(snr_values, np.linspace(0, 100, n_bins + 1))
+    edges[0] -= 1e-6
     edges[-1] += 1e-6
     return edges
 
 
 def assign_snr_bins(snr_array: np.ndarray, bin_edges: np.ndarray) -> np.ndarray:
     n_bins = len(bin_edges) - 1
-    bin_idx = np.digitize(snr_array, bin_edges[1:-1], right=False)
-    return np.clip(bin_idx, 0, n_bins - 1)
+    return np.clip(np.digitize(snr_array, bin_edges[1:-1], right=False),
+                   0, n_bins - 1)
 
 
-def bin_label(bin_idx: int, bin_edges: np.ndarray) -> str:
-    lo, hi = bin_edges[bin_idx], bin_edges[bin_idx + 1]
-    return f"{lo:.1f} to {hi:.1f} dB"
+def bin_label(i: int, edges: np.ndarray) -> str:
+    return f"{edges[i]:.1f} to {edges[i+1]:.1f} dB"
 
 
-# ── self-contained dataset builder with SNR tracking (dataloader.py untouched) ──
+def snr_per_window(data: dict, local_path: str) -> np.ndarray:
+    """Per-window SNR, joined from metadata/trials.csv on stimulus-content id.
 
-def build_dataset_with_snr(local_path: str,
-                           mode: str = "eeg_gaze_imu_video",
-                           subjects="all",
-                           trials: str = "main",
-                           cache_dir: str = None,
-                           window_sec: float = dl_WINDOW_SEC,
-                           hop_sec: float = None) -> dict:
+    The cached dataset already carries the content id for every window, so this
+    needs no second pass over the recordings.
     """
-    Parallel version of dataloader.build_dataset() -- same loop
-    structure, same window_sec/hop_sec pass-through to load_trial(), same
-    trial_meta_subject/trial_meta_tid tracking (required by
-    get_official_split_windows()) -- that additionally reads trials.csv's
-    "snr_db" column and returns a per-window "snr" array plus a
-    "trial_meta_snr" array (one value per trial, for reference/debugging).
-    """
-    assert mode in VALID_MODES, f"mode must be one of {VALID_MODES}"
-    root = Path(local_path)
+    df = pd.read_csv(Path(local_path) / "metadata" / "trials.csv")
+    df = df[df["kind"] == "main"].copy()
+    assert "snr_db" in df.columns, (
+        "trials.csv has no 'snr_db' column -- cannot run the SNR analysis. "
+        f"Columns: {list(df.columns)}")
+    # Content ids in the cached dataset are the trials.csv trial_id strings
+    # ('eval_001' ...); older caches may carry the bare 1-based number, so key
+    # the lookup on both forms.
+    snr = df["snr_db"].to_numpy(dtype=float)
+    lut = {}
+    for t, v in zip(df["trial_id"].astype(str), snr):
+        lut[t] = v
+        m = re.search(r"(\d+)$", t)
+        if m:
+            lut[int(m.group(1))] = v
+            lut[m.group(1)] = v
+    content = content_per_window(data)
 
-    trials_df   = pd.read_csv(root / "metadata" / "trials.csv")
-    audio_meta  = json.loads((root / "metadata" / "audio_layout.json").read_text())
-    audio_layout = audio_meta["speakers"]
+    def key(c):
+        c = c.item() if hasattr(c, "item") else c
+        return int(c) if isinstance(c, (int, np.integer)) else str(c)
 
-    if trials == "main":
-        trials_df = trials_df[trials_df["kind"] == "main"].copy()
-
-    assert "snr_db" in trials_df.columns, (
-        "trials.csv has no 'snr_db' column -- cannot run SNR-stratified analysis. "
-        f"Columns found: {list(trials_df.columns)}")
-
-    subj_list = list(range(1, 17)) if subjects == "all" else list(subjects)
-    use_eeg, use_gaze, use_imu, use_video = mode_uses(mode)
-
-    all_eeg      = [] if use_eeg   else None
-    all_video    = [] if use_video else None
-    all_gaze     = [] if use_gaze  else None
-    all_imu      = [] if use_imu   else None
-    all_audio    = [[] for _ in range(N_SPEAKERS)]
-    all_att_idxs = []
-    all_trial_ids= []
-    all_snr      = []
-    trial_meta   = []
-    tid_ctr      = 0
-
-    for s in subj_list:
-        sid = f"S{s:02d}"
-        for _, row in trials_df.iterrows():
-            tid     = row["trial_id"]
-            att_spk = int(row["attended_speaker"])
-            snr     = int(row["snr_db"])
-
-            result = load_trial(
-                local_path      = str(root),
-                sid             = sid,
-                tid             = tid,
-                audio_layout    = audio_layout,
-                attended_speaker= att_spk,
-                mode            = mode,
-                cache_dir       = cache_dir,
-                window_sec      = window_sec,
-                hop_sec         = hop_sec,
-            )
-            if result is None:
-                continue
-
-            n_win = result["audio"][0].shape[0]
-            if use_eeg:   all_eeg.append(result["eeg"])
-            if use_video: all_video.append(result["video"])
-            if use_gaze:  all_gaze.append(result["gaze"])
-            if use_imu:   all_imu.append(result["imu"])
-            for i in range(N_SPEAKERS):
-                all_audio[i].append(result["audio"][i])
-            all_att_idxs.append(result["att_idxs"])
-            all_trial_ids.append(np.full(n_win, tid_ctr, dtype=np.int64))
-            all_snr.append(np.full(n_win, snr, dtype=np.int64))
-            trial_meta.append({"trial_id": tid_ctr, "att_idx": att_spk - 1,
-                              "subject": s, "tid": tid, "snr": snr})
-            tid_ctr += 1
-
-        print(f"Subject {s}: loaded")
-
-    def _cat(lst):
-        if lst is None or not lst:
-            return None
-        lst = [x for x in lst if x is not None]
-        return np.concatenate(lst, axis=0) if lst else None
-
-    dataset = {
-        "eeg":   _cat(all_eeg),
-        "video": _cat(all_video),
-        "gaze":  _cat(all_gaze),
-        "imu":   _cat(all_imu),
-        "audio": [np.concatenate(all_audio[i], axis=0) for i in range(N_SPEAKERS)],
-        "att_idxs":           np.concatenate(all_att_idxs,  axis=0),
-        "trial_ids":          np.concatenate(all_trial_ids, axis=0),
-        "snr":                np.concatenate(all_snr,        axis=0),
-        "trial_meta_ids":     np.array([t["trial_id"] for t in trial_meta], dtype=np.int64),
-        "trial_meta_att_idx": np.array([t["att_idx"]  for t in trial_meta], dtype=np.int64),
-        "trial_meta_subject": np.array([t["subject"]  for t in trial_meta], dtype=np.int64),
-        "trial_meta_tid":     np.array([t["tid"]       for t in trial_meta], dtype=object),
-        "trial_meta_snr":     np.array([t["snr"]       for t in trial_meta], dtype=np.int64),
-    }
-
-    n_windows = len(dataset["audio"][0])
-    n_trials  = len(trial_meta)
-    print(f"\nTotal (all modalities): {n_trials} trials, {n_windows} windows")
-    from collections import Counter
-    snr_dist = Counter(dataset["trial_meta_snr"].tolist())
-    print("SNR dist (trials per level):", dict(sorted(snr_dist.items())))
-    return dataset
-
-
-# ── SNR-aware evaluation ────────────────────────────────────────────────────────
-
-def evaluate_by_snr(models: dict, active_modalities: list, loader: DataLoader,
-                    bin_by_window: np.ndarray, combiner=None):
-    """
-    Same structure as before: runs `models` over `loader` (shuffle=False,
-    so batch order matches bin_by_window's order exactly), combining
-    outputs via `combiner` (multi-modality) or using the single model
-    directly (single-modality, active_modalities has length 1).
-    `bin_by_window` holds PRE-COMPUTED quantile bin indices for the exact
-    windows this loader iterates -- so correct/total counts are pooled
-    within each bin BEFORE any ratio is taken.
-    """
-    for m in models.values():
-        m.eval()
-    if combiner is not None:
-        combiner.eval()
-
-    correct_by_bin = defaultdict(int)
-    total_by_bin   = defaultdict(int)
-
-    idx = 0
-    with torch.no_grad():
-        for eeg, video, gaze, imu, audio, labels in loader:
-            eeg, video, gaze, imu = _to(eeg), _to(video), _to(gaze), _to(imu)
-            audio  = [a.to(DEVICE) for a in audio]
-            labels = labels.to(DEVICE)
-
-            probs_list = [
-                _single_modality_forward(models[m], m, eeg, video, gaze, imu, audio)
-                for m in active_modalities
-            ]
-            combined = combiner(probs_list) if combiner is not None else probs_list[0]
-
-            preds = combined.argmax(dim=1)
-            trues = labels.argmax(dim=1)
-            correct_mask = (preds == trues).cpu().numpy()
-
-            batch_size = labels.size(0)
-            batch_bins = bin_by_window[idx: idx + batch_size]
-            idx += batch_size
-
-            for b, is_correct in zip(batch_bins, correct_mask):
-                total_by_bin[int(b)]   += 1
-                correct_by_bin[int(b)] += int(is_correct)
-
-    return correct_by_bin, total_by_bin
-
-
-# ── per-mode runner ──────────────────────────────────────────────────────────────
-
-def run_mode(args, mode: str, data: dict, bin_edges: np.ndarray,
-            ModelClass, DatasetClass, task_collate_fn,
-            train_content_set=None, heldout_content_set=None) -> dict:
-    print(f"\n{'='*60}\nMode: {mode}\n{'='*60}")
-
-    is_single = mode in ALL_SINGLE_MODES
-    active_modalities = [mode] if is_single else _active_modalities(mode)
-    n_bins = len(bin_edges) - 1
-
-    per_fold_acc = defaultdict(list)
-    total_all    = defaultdict(int)
-
-    folds = load_official_splits(args.splits_dir, args.split_setting)
-
-    for fold_info in folds:
-        fold_num = fold_info["fold"]
-        tr_idx, te_idx = get_official_split_windows(data, fold_info)
-
-        if args.split_setting == "loso":
-            # Restrict by content on top of the official subject split,
-            # exactly matching late_fusion.py's run_one_mode() -- MUST use
-            # the same held_out_content_frac/seed as whatever produced
-            # the checkpoints being loaded, or this evaluates against a
-            # different train/test boundary than they were validated on.
-            win_content = data["trial_meta_tid"][
-                np.searchsorted(data["trial_meta_ids"], data["trial_ids"])]
-            is_train_content   = np.isin(win_content, list(train_content_set))
-            is_heldout_content = np.isin(win_content, list(heldout_content_set))
-            tr_idx = tr_idx[is_train_content[tr_idx]]
-            te_idx = te_idx[is_heldout_content[te_idx]]
-
-        # Load this fold's frozen single-modality checkpoint(s) -- same
-        # files whether mode is a single modality or part of a
-        # multi-modality combination, via late_fusion.py's own
-        # checkpoint-path convention (kept in sync automatically).
-        models = {}
-        missing = False
-        for m in active_modalities:
-            try:
-                ckpt_path = _ckpt_path(args.ckpt_dir, args.task, m, fold_num, args.split_setting)
-            except FileNotFoundError as e:
-                print(f"  Fold {fold_num}: {e} -- skipping fold")
-                missing = True
-                break
-            model_m = ModelClass(mode=m).to(DEVICE)
-            model_m.load_state_dict(torch.load(ckpt_path, map_location=DEVICE))
-            models[m] = model_m
-        if missing:
-            continue
-
-        te_ds = DatasetClass(data, te_idx, train=False)
-        te_loader = DataLoader(te_ds, batch_size=args.batch_size, shuffle=False,
-                               collate_fn=task_collate_fn, num_workers=0)
-        # Bin the FINAL TEST windows (the ones actually being SNR-broken-
-        # down and reported) using the GLOBAL bin edges computed once in
-        # main() from the full dataset, so "bin 0" means the same SNR
-        # range in every fold and every mode.
-        bin_for_test = assign_snr_bins(data["snr"][te_idx], bin_edges)
-
-        combiner = None
-        if not is_single:
-            if args.combine == "mean":
-                combiner = _MeanCombiner()
-            else:
-                # Combiner SELECTION only ever sees the inner-val split,
-                # carved the same way late_fusion.py carves it -- by
-                # subject for loso, by content for within -- so no SNR-
-                # bin information from the final test set can leak into
-                # which combiner weights get selected.
-                if args.split_setting == "loso":
-                    inner_tr_idx, inner_vl_idx = carve_inner_val(
-                        data, tr_idx, val_frac=args.inner_val_frac, seed=SEED + fold_num)
-                else:
-                    inner_tr_idx, inner_vl_idx = carve_inner_val_content(
-                        data, tr_idx, val_frac=args.inner_val_frac, seed=SEED + fold_num)
-
-                inner_tr_ds = DatasetClass(data, inner_tr_idx, train=True)
-                inner_vl_ds = DatasetClass(data, inner_vl_idx, train=False)
-                inner_tr_loader = DataLoader(inner_tr_ds, batch_size=args.batch_size, shuffle=True,
-                                             collate_fn=task_collate_fn, num_workers=0)
-                inner_vl_loader = DataLoader(inner_vl_ds, batch_size=args.batch_size, shuffle=False,
-                                             collate_fn=task_collate_fn, num_workers=0)
-                combiner, best_inner_val_acc = train_combiner(
-                    models, active_modalities, inner_tr_loader, inner_vl_loader,
-                    epochs=args.epochs)
-                print(f"  Fold {fold_num}: combiner best inner_val={best_inner_val_acc:.4f}")
-
-        correct_by_bin, total_by_bin = evaluate_by_snr(
-            models, active_modalities, te_loader, bin_for_test, combiner=combiner)
-
-        for b in total_by_bin:
-            total_all[b] += total_by_bin[b]
-            per_fold_acc[b].append(correct_by_bin[b] / total_by_bin[b])
-
-        print(f"  Fold {fold_num}: evaluated "
-              f"{sum(total_by_bin.values())} test windows across {len(total_by_bin)} SNR bins")
-
-    snr_results = {}
-    for b in sorted(per_fold_acc.keys()):
-        accs = per_fold_acc[b]
-        snr_results[b] = {
-            "bin_range":       bin_label(b, bin_edges),
-            "mean_accuracy":   float(np.mean(accs)),
-            "std_accuracy":    float(np.std(accs)),
-            "n_folds":         len(accs),
-            "n_windows_total": total_all[b],
-        }
-        print(f"  Bin {b} ({bin_label(b, bin_edges)}): "
-              f"acc={np.mean(accs):.4f} +/- {np.std(accs):.4f} "
-              f"(n={total_all[b]} windows, {len(accs)} folds/subjects)")
-
-    return snr_results
-
-
-def find_best_multi_mode(late_fusion_dir: str, task: str, split_setting: str,
-                         window_sec: float, hop_sec: float) -> str:
-    """
-    Scans the EXISTING late_fusion.py output for this exact
-    (task, split_setting, window_sec, hop_sec) and returns whichever of
-    the 11 multi-modality modes has the highest mean_accuracy, so this
-    script only has to train ONE combiner per window size instead of
-    all 11 -- the single-modality modes cost nothing extra either way
-    (pure inference, no training), so this is purely about avoiding
-    redundant combiner-retraining work for modes you don't actually
-    need broken down by SNR.
-
-    Uses exact filename parsing plus a cross-check against each file's
-    own internal "mode" field before trusting it -- the same safeguard
-    used elsewhere in this project, after an earlier loose-glob bug
-    caused a real mismatch (a query for one mode silently loading a
-    different mode's file).
-    """
-    import re, glob as _glob
-    w = f"{window_sec:g}"
-    pattern = re.compile(
-        rf"^late_fusion_{task}_{split_setting}_w{re.escape(w)}_h[\d.]+_(.+)_learned\.json$")
-
-    best_mode, best_acc, best_file = None, -1.0, None
-    for f in _glob.glob(os.path.join(
-            late_fusion_dir, f"late_fusion_{task}_{split_setting}_w{w}_h*_learned.json")):
-        m = pattern.match(os.path.basename(f))
-        if not m or m.group(1) not in MULTI_MODALITY_MODES:
-            continue
-        mode = m.group(1)
-        with open(f) as fh:
-            r = json.load(fh)
-        if r.get("mode") != mode:
-            print(f"  WARNING: {f} filename implies mode='{mode}' but its own "
-                 f"'mode' field says '{r.get('mode')}' -- skipping this file "
-                 f"rather than trusting a mismatched result.")
-            continue
-        acc = r.get("mean_accuracy")
-        if acc is not None and acc > best_acc:
-            best_mode, best_acc, best_file = mode, acc, f
-
-    if best_mode is None:
-        raise RuntimeError(
-            f"No late_fusion result files found matching "
-            f"late_fusion_{task}_{split_setting}_w{w}_h*_learned.json in "
-            f"'{late_fusion_dir}' -- check --late_fusion_dir, or pass "
-            f"--modes explicitly instead of --auto_best_multi.")
-
-    print(f"Auto-selected best multimodal mode for {task}/{split_setting}/w={w}s: "
-         f"'{best_mode}' (mean_accuracy={best_acc:.4f}, from {best_file})")
-    return best_mode
-
-
-def parse_args():
-    p = argparse.ArgumentParser(description="SNR-stratified analysis, official-split-based (singles + late fusion)")
-    p.add_argument("--task", default="aad", choices=["aad", "hemisphere", "eccentricity"])
-    p.add_argument("--split_setting", default="loso", choices=["loso", "within"])
-    p.add_argument("--local_path", default="maestro")
-    p.add_argument("--cache_dir",  default="cache")
-    p.add_argument("--splits_dir", default=None,
-                   help="Path to the dataset's splits/ folder. Defaults to <local_path>/splits.")
-    p.add_argument("--ckpt_dir",   default=None,
-                   help="Directory containing the single-modality checkpoints. Defaults to "
-                        "results_{task}_{split_setting}_w{window_sec}_h{hop_sec}, matching "
-                        "train_pooled.py/train_hemisphere.py/train_eccentricity.py's own naming.")
-    p.add_argument("--results",    default="results_snr")
-    p.add_argument("--window_sec", type=float, default=None)
-    p.add_argument("--hop_sec",    type=float, default=None)
-    p.add_argument("--batch_size", type=int, default=32)
-    p.add_argument("--combine",    choices=["mean", "learned"], default="learned",
-                   help="Should match how results_late_fusion was generated")
-    p.add_argument("--epochs",     type=int, default=30,
-                   help="Epochs for re-training each fold's late-fusion combiner "
-                        "(only used when --combine learned)")
-    p.add_argument("--inner_val_frac", type=float, default=0.2)
-    p.add_argument("--held_out_content_frac", type=float, default=0.2,
-                   help="LOSO ONLY: MUST match whatever value trained the checkpoints "
-                        "being loaded, or this evaluates a different train/test boundary "
-                        "than those checkpoints were validated on.")
-    p.add_argument("--n_bins",     type=int, default=4,
-                   help="Number of quantile (equal-count) SNR bins")
-    p.add_argument("--modes", nargs="+", default=None,
-                   help="Optional: run exactly these modes instead of the "
-                        "default (all 4 single modalities + the single best "
-                        "multimodal mode, auto-selected from --late_fusion_dir).")
-    p.add_argument("--late_fusion_dir", default="results_late_fusion",
-                   help="Directory containing existing late_fusion.py output, "
-                        "used to auto-select the best multimodal mode for "
-                        "this exact task/split/window/hop (ignored if --modes "
-                        "is given explicitly).")
-    return p.parse_args()
+    missing = sorted({str(key(c)) for c in np.unique(content)}
+                     - {str(k) for k in lut})
+    assert not missing, f"no snr_db for content ids {missing[:10]}"
+    return np.array([lut[key(c)] for c in content], dtype=float)
 
 
 def main():
-    args = parse_args()
-    if args.splits_dir is None:
-        args.splits_dir = os.path.join(args.local_path, "splits")
+    p = argparse.ArgumentParser()
+    p.add_argument("--local_path", default="maestro")
+    p.add_argument("--cache_dir", default="cache")
+    p.add_argument("--dataset_cache", default=None)
+    p.add_argument("--mode", choices=VALID_MODES, default="eeg")
+    p.add_argument("--split_setting", choices=["loso", "within"], default="loso")
+    p.add_argument("--splits_dir", default=None)
+    p.add_argument("--candidates", default="qmatch")
+    p.add_argument("--n_candidates", type=int, default=N_SPEAKERS)
+    p.add_argument("--window_sec", type=float, default=None)
+    p.add_argument("--hop_sec", type=float, default=None)
+    p.add_argument("--n_bins", type=int, default=4,
+                   help="Number of quantile (equal-count) SNR bins")
+    p.add_argument("--test_shuffles", type=int, default=20)
+    p.add_argument("--batch_size", type=int, default=32)
+    p.add_argument("--held_out_content_frac", type=float, default=0.2)
+    p.add_argument("--model_root", required=True,
+                   help="The --results prefix the train_aad.py run used; the "
+                        "per-fold checkpoints are read from "
+                        "<root>_<split>_w<W>_h<H>_<candidates>/")
+    p.add_argument("--results", default="results_snr")
+    args = p.parse_args()
 
-    window_sec_eff = args.window_sec if args.window_sec is not None else dl_WINDOW_SEC
-    hop_sec_eff    = args.hop_sec    if args.hop_sec    is not None else window_sec_eff
-
-    if args.ckpt_dir is None:
-        args.ckpt_dir = (f"results_{args.task}_{args.split_setting}"
-                         f"_w{window_sec_eff:g}_h{hop_sec_eff:g}")
-        print(f"(--ckpt_dir not given, auto-resolved to: {args.ckpt_dir})")
-
+    splits_dir = args.splits_dir or os.path.join(args.local_path, "splits")
+    window_sec = (args.window_sec if args.window_sec is not None
+                  else dl_WINDOW_SEC)
+    hop_sec = args.hop_sec if args.hop_sec is not None else window_sec
+    args.window_sec, args.hop_sec = window_sec, hop_sec
+    # ':g' so the name matches the one train_aad.py wrote (w10, not w10.0)
+    model_dir = (f"{args.model_root}_{args.split_setting}"
+                 f"_w{window_sec:g}_h{hop_sec:g}_{args.candidates}")
     os.makedirs(args.results, exist_ok=True)
+    label = MODE_LABELS[args.mode]
+    print(f"Device: {DEVICE} | Mode: {label} | Split: {args.split_setting} | "
+          f"window {args.window_sec}s\nCheckpoints: {model_dir}")
 
-    if args.modes:
-        modes_to_run = list(args.modes)
-        for m in modes_to_run:
-            assert m in VALID_MODES, f"Unknown mode: {m}"
-        print(f"Running explicitly-requested modes: {modes_to_run}")
-    else:
-        best_multi = find_best_multi_mode(
-            args.late_fusion_dir, args.task, args.split_setting,
-            window_sec_eff, hop_sec_eff)
-        modes_to_run = ALL_SINGLE_MODES + [best_multi]
-        print(f"Running default mode set (4 singles + auto-selected best "
-             f"multimodal): {modes_to_run}")
+    data = build_dataset_cached(local_path=args.local_path, mode=args.mode,
+                                cache_dir=args.cache_dir,
+                                window_sec=args.window_sec,
+                                hop_sec=args.hop_sec,
+                                dataset_cache=args.dataset_cache)
+    bank = make_candidate_bank(data, args.candidates,
+                               args.window_sec or dl_WINDOW_SEC, args.hop_sec,
+                               n_cand=args.n_candidates, seed=SEED)
 
-    ModelClass, DatasetClass, task_collate_fn = _load_task(args.task)
-
-    print("Loading dataset (all 4 modalities, built once, reused for every mode)...")
-    data = build_dataset_with_snr(local_path=args.local_path, cache_dir=args.cache_dir,
-                                  window_sec=window_sec_eff, hop_sec=hop_sec_eff)
-
-    # Global bin edges from the FULL dataset's SNR distribution (all
-    # windows, all subjects), so "bin 0" refers to the same SNR range
-    # across every fold and every mode's evaluation.
-    bin_edges = compute_snr_bins(data["snr"], args.n_bins)
-    print(f"\nSNR quantile bins ({args.n_bins} bins, computed from full dataset):")
+    snr = snr_per_window(data, args.local_path)
+    edges = compute_snr_bins(snr, args.n_bins)
+    print(f"\nSNR quantile bins ({args.n_bins}, from the full dataset):")
     for b in range(args.n_bins):
-        print(f"  Bin {b}: {bin_label(b, bin_edges)}")
+        print(f"  bin {b}: {bin_label(b, edges)}")
 
-    train_content_set = heldout_content_set = None
+    folds = load_official_splits(splits_dir, args.split_setting)
     if args.split_setting == "loso":
-        train_content_set, heldout_content_set = compute_global_content_holdout(
+        train_content, heldout_content = compute_global_content_holdout(
             data, held_out_content_frac=args.held_out_content_frac, seed=SEED)
-        print(f"Global content holdout (loso only): "
-              f"{len(train_content_set)} train-content trials, "
-              f"{len(heldout_content_set)} held-out-content trials")
+    win_content = content_per_window(data)
+    win_position = position_in_trial(data)
 
-    all_results = {}
-    for mode in modes_to_run:
-        snr_results = run_mode(args, mode, data, bin_edges, ModelClass, DatasetClass,
-                               task_collate_fn, train_content_set, heldout_content_set)
-        all_results[mode] = snr_results
+    per_fold = {}
+    for fold_info in folds:
+        fold_num = fold_info["fold"]
+        _, te_idx = get_official_split_windows(data, fold_info)
+        if args.split_setting == "loso":
+            te_idx = te_idx[np.isin(win_content[te_idx], list(heldout_content))]
+        if len(te_idx) < 5:
+            print(f"Fold {fold_num}: too few test windows, skipping")
+            continue
 
-    out_path = os.path.join(
+        ckpt = os.path.join(
+            model_dir, f"fold_{fold_num}_{args.mode}_{args.split_setting}.pt")
+        if not os.path.exists(ckpt):
+            print(f"Fold {fold_num}: no checkpoint at {ckpt}, skipping")
+            continue
+
+        loader = DataLoader(
+            AADDataset(data, te_idx, bank, train=False,
+                       n_cand=args.n_candidates),
+            batch_size=args.batch_size, shuffle=False,
+            collate_fn=collate_fn, num_workers=0)
+        model = AADModel(mode=args.mode).to(DEVICE)
+        model.load_state_dict(torch.load(ckpt, map_location=DEVICE))
+
+        strata = {"position": win_position[te_idx],
+                  "trial": data["trial_ids"][te_idx]}
+        ev = Evaluator(model, loader, DEVICE, strata=strata)
+        overall = ev.battery(n_shuffle=args.test_shuffles)
+        bins = ev.by_group(assign_snr_bins(snr[te_idx], edges),
+                           n_shuffle=args.test_shuffles)
+        per_fold[fold_num] = {"overall": overall, "bins": bins}
+        print(f"  fold {fold_num}: acc={overall['accuracy']:.4f} "
+              f"null={overall['null_mean']:.4f} "
+              f"contribution={overall['contribution']:+.4f} | "
+              + " ".join(f"b{b}:{v['accuracy']:.3f}/{v['null_mean']:.3f}"
+                         for b, v in sorted(bins.items())))
+
+    # ── aggregate: mean over folds, so every fold weighs the same ─────────────
+    agg = {}
+    for b in range(args.n_bins):
+        rows = [f["bins"][b] for f in per_fold.values() if b in f["bins"]]
+        if not rows:
+            continue
+        agg[b] = {
+            "label": bin_label(b, edges),
+            "n_folds": len(rows),
+            "n_windows": int(sum(r["n"] for r in rows)),
+            "accuracy": float(np.mean([r["accuracy"] for r in rows])),
+            "accuracy_sd": float(np.std([r["accuracy"] for r in rows])),
+            "null_mean": float(np.mean([r["null_mean"] for r in rows])),
+            "contribution": float(np.mean([r["contribution"] for r in rows])),
+            "contribution_sd": float(np.std([r["contribution"] for r in rows])),
+            "folds_positive": int(sum(r["contribution"] > 0 for r in rows)),
+        }
+
+    out = {
+        "mode": label, "mode_key": args.mode,
+        "split_setting": args.split_setting,
+        "candidates": args.candidates, "n_candidates": args.n_candidates,
+        "window_sec": args.window_sec, "hop_sec": args.hop_sec,
+        "chance_level": 1.0 / args.n_candidates,
+        "snr_bin_edges": [float(e) for e in edges],
+        "bins": agg,
+        "overall": {
+            k: float(np.mean([f["overall"][k] for f in per_fold.values()]))
+            for k in ("accuracy", "null_mean", "contribution")
+        } if per_fold else {},
+        "per_fold": per_fold,
+        "note": "Each bin reports accuracy WITH its own permutation null. A "
+                "rising accuracy curve is only evidence of better neural "
+                "decoding if the null does not rise with it.",
+    }
+    print("\nSNR bins (mean over folds):")
+    print(f"{'bin':>4} {'range':>18} {'acc':>7} {'null':>7} {'contribution':>13} "
+          f"{'folds+':>7}")
+    for b, v in sorted(agg.items()):
+        print(f"{b:>4} {v['label']:>18} {v['accuracy']:>7.4f} "
+              f"{v['null_mean']:>7.4f} {v['contribution']:>+13.4f} "
+              f"{v['folds_positive']}/{v['n_folds']:>3}")
+
+    path = os.path.join(
         args.results,
-        f"snr_analysis_{args.task}_{args.split_setting}"
-        f"_w{window_sec_eff:g}_h{hop_sec_eff:g}.json")
-    with open(out_path, "w") as f:
-        json.dump({
-            "task": args.task, "split_setting": args.split_setting,
-            "window_sec": window_sec_eff, "hop_sec": hop_sec_eff,
-            "combine": args.combine,
-            "n_bins": args.n_bins,
-            "bin_edges": bin_edges.tolist(),
-            "modes_run": modes_to_run,
-            "results": all_results,
-        }, f, indent=2)
-    print(f"\nResults saved to {out_path}")
+        f"snr_{args.mode}_{args.split_setting}_w{window_sec:g}.json")
+    with open(path, "w") as f:
+        json.dump(out, f, indent=2)
+    print(f"\nSaved -> {path}")
 
 
 if __name__ == "__main__":

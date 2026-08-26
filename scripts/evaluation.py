@@ -123,6 +123,44 @@ class Evaluator:
             p[m] = m[rng.permutation(len(m))]
         return p
 
+    def by_group(self, groups, n_shuffle: int = 20, seed: int = 1000) -> dict:
+        """Accuracy, permutation null and contribution WITHIN each group of test
+        windows -- used for the SNR-stratified analysis.
+
+        `groups` is an (N,) array of labels over the test windows in loader
+        order.  The null is computed per window: over `n_shuffle` permutations,
+        the fraction of times the window is still decoded correctly when it is
+        given ANOTHER window's recording while keeping its own candidates and
+        its own label.  Averaging that within a group gives the group's
+        audio-only floor, so a group's contribution is not confounded by the
+        group's own class balance or candidate difficulty.
+
+        This matters for SNR in particular: the acoustic mark that identifies
+        the attended talker is itself a function of the mixture, so the floor
+        need not be flat across SNR bins.  Reporting accuracy per bin without
+        the per-bin null cannot distinguish "decoding improves with SNR" from
+        "the shortcut gets easier with SNR".
+        """
+        groups = np.asarray(groups)
+        assert len(groups) == self.N, (
+            f"groups has {len(groups)} entries for {self.N} test windows")
+
+        real_ok = (self.logits().argmax(1) == self.labels).numpy().astype(float)
+        null_ok = np.zeros(self.N, dtype=float)
+        for k in range(n_shuffle):
+            rng = np.random.default_rng(seed + k)
+            lg = self.logits(perm=self._permutation(rng))
+            null_ok += (lg.argmax(1) == self.labels).numpy()
+        null_ok /= max(n_shuffle, 1)
+
+        out = {}
+        for g in np.unique(groups):
+            m = groups == g
+            acc, nul = float(real_ok[m].mean()), float(null_ok[m].mean())
+            out[int(g)] = dict(n=int(m.sum()), accuracy=acc, null_mean=nul,
+                               contribution=acc - nul)
+        return out
+
     def battery(self, n_shuffle: int = 20, seed: int = 1000) -> dict:
         real_lg = self.logits()
         real = self.accuracy(real_lg)
