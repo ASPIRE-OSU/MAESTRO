@@ -80,6 +80,26 @@ class Evaluator:
         self.K = (self.aud.shape[1] if self.aud is not None
                   else self.perms.shape[1])
 
+        # Keep the cached encoder outputs resident on the accelerator.  Every
+        # permutation re-reads the whole test set, so leaving these on the host
+        # makes the permutation loop transfer-bound rather than compute-bound:
+        # at 3520 test windows a single permutation moves ~360 MB, and 10000 of
+        # them move 3.6 TB per fold.  The tensors themselves are small enough to
+        # stay resident, and `.to()` is a no-op once they are, so `logits()`
+        # needs no change.  Falls back to the host if the device is short of
+        # memory, which only costs speed.
+        try:
+            self.embs = {m: v.to(device) for m, v in self.embs.items()}
+            if self.aud is not None:
+                self.aud = self.aud.to(device)
+            self.perms = self.perms.to(device)
+            self.labels = self.labels.to(device)
+            self.zero_e = {m: v.to(device) for m, v in (zero_e or {}).items()}
+            self.resident = True
+        except (RuntimeError, torch.cuda.OutOfMemoryError):
+            torch.cuda.empty_cache() if torch.cuda.is_available() else None
+            self.resident = False
+
     @torch.no_grad()
     def logits(self, perm=None, zero: bool = False):
         m0 = self.model
@@ -107,7 +127,7 @@ class Evaluator:
                 key = "fused" if "fused" in sp else next(iter(sp))
                 slot = torch.gather(sp[key], 1, self.perms[sl].to(self.device))
                 lg = slot if lg is None else lg + slot
-            out.append(lg.cpu())
+            out.append(lg)
         return torch.cat(out)
 
     def accuracy(self, lg):
@@ -145,12 +165,12 @@ class Evaluator:
         assert len(groups) == self.N, (
             f"groups has {len(groups)} entries for {self.N} test windows")
 
-        real_ok = (self.logits().argmax(1) == self.labels).numpy().astype(float)
+        real_ok = (self.logits().argmax(1) == self.labels).cpu().numpy().astype(float)
         null_ok = np.zeros(self.N, dtype=float)
         for k in range(n_shuffle):
             rng = np.random.default_rng(seed + k)
             lg = self.logits(perm=self._permutation(rng))
-            null_ok += (lg.argmax(1) == self.labels).numpy()
+            null_ok += (lg.argmax(1) == self.labels).cpu().numpy()
         null_ok /= max(n_shuffle, 1)
 
         out = {}

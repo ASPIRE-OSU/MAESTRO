@@ -23,6 +23,7 @@ from torch.utils.data import Dataset, Sampler
 
 EEG_FS_RAW   = 500
 AUDIO_FS_RAW = 16_000
+TRIAL_SEC    = 30.0   # nominal trial duration; see the padding note in load_trial
 TARGET_FS    = 64
 WINDOW_SEC   = 30
 WINDOW_SAMP  = TARGET_FS * WINDOW_SEC   # 1920
@@ -797,9 +798,21 @@ def load_trial(local_path: str,
               f"({window_sec}/{hop_sec_eff})")
         return None
 
-    pad_to = ((min_len + window_samp - 1) // window_samp) * window_samp
-    if pad_to - min_len <= TARGET_FS:
-        min_len = pad_to
+    # Trials are nominally 30 s but land at 1908 samples (29.81 s) after the
+    # streams are clipped to their shared span.  Pad every trial to the nominal
+    # TRIAL_SEC so that the window count follows the stated hop rule identically
+    # at every window size.
+    #
+    # The previous rule padded to the next whole multiple of `window_samp`,
+    # which is window-size dependent and silently changed the protocol at 20 s:
+    # for a 20 s window the next multiple is 2560 samples (40 s), more than the
+    # one-second padding allowance, so no padding was applied and a 29.81 s
+    # trial admitted a single 20 s window instead of the two the hop rule
+    # implies.  Every other window size padded to 1920 and was unaffected, so
+    # 20 s alone was evaluated on a third of the windows of the 15 s condition.
+    nominal = int(round(TRIAL_SEC * TARGET_FS))
+    if 0 < nominal - min_len <= TARGET_FS:
+        min_len = nominal
     if min_len < window_samp:
         return None
 
