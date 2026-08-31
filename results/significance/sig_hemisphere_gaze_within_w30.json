@@ -1,0 +1,69 @@
+{
+ "task": "hemisphere",
+ "mode": "gaze",
+ "mode_label": "Gaze only",
+ "split_setting": "within",
+ "window_sec": 30.0,
+ "hop_sec": 15.0,
+ "candidates": "qmatch",
+ "n_candidates": 2,
+ "chance_level": 0.5,
+ "n_perm": 10000,
+ "p_floor": 9.999000099990002e-05,
+ "n_folds": 5,
+ "accuracy": 0.7496894717216491,
+ "null_mean": 0.4998666478526592,
+ "null_std": 0.012441599949439632,
+ "contribution": 0.2498228238689899,
+ "p_permutation_cell": 9.999000099990002e-05,
+ "n_perm_at_or_above_cell": 0,
+ "z_cell": 20.079638058139157,
+ "folds": {
+  "0": {
+   "accuracy": 0.7437500357627869,
+   "null_mean": 0.5006125086665153,
+   "null_std": 0.027561113726451928,
+   "contribution": 0.24313752709627157,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 320
+  },
+  "1": {
+   "accuracy": 0.7593750357627869,
+   "null_mean": 0.4995875100791454,
+   "null_std": 0.027760851642375534,
+   "contribution": 0.25978752568364144,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 320
+  },
+  "2": {
+   "accuracy": 0.778124988079071,
+   "null_mean": 0.5002693852812051,
+   "null_std": 0.02754789080373927,
+   "contribution": 0.2778556027978659,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 320
+  },
+  "3": {
+   "accuracy": 0.75157231092453,
+   "null_mean": 0.4991150753289461,
+   "null_std": 0.028406194603075547,
+   "contribution": 0.2524572355955839,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 318
+  },
+  "4": {
+   "accuracy": 0.715624988079071,
+   "null_mean": 0.4997487599074841,
+   "null_std": 0.027931266905216277,
+   "contribution": 0.21587622817158697,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 320
+  }
+ },
+ "note": "p_permutation_cell tests the fold-averaged accuracy against the distribution of fold-averaged accuracies under permutation of the physiological recordings. Its floor is 1/(n_perm+1)."
+}

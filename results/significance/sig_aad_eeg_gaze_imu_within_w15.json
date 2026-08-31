@@ -1,0 +1,69 @@
+{
+ "task": "aad",
+ "mode": "eeg_gaze_imu",
+ "mode_label": "EEG+Gaze+IMU",
+ "split_setting": "within",
+ "window_sec": 15.0,
+ "hop_sec": 7.5,
+ "candidates": "qmatch",
+ "n_candidates": 4,
+ "chance_level": 0.25,
+ "n_perm": 10000,
+ "p_floor": 9.999000099990002e-05,
+ "n_folds": 5,
+ "accuracy": 0.5961530566215515,
+ "null_mean": 0.26236065639257433,
+ "null_std": 0.006294637194488036,
+ "contribution": 0.33379240022897716,
+ "p_permutation_cell": 9.999000099990002e-05,
+ "n_perm_at_or_above_cell": 0,
+ "z_cell": 53.02806021421502,
+ "folds": {
+  "0": {
+   "accuracy": 0.5802083611488342,
+   "null_mean": 0.2580607430562377,
+   "null_std": 0.01393372047270907,
+   "contribution": 0.3221476180925965,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 960
+  },
+  "1": {
+   "accuracy": 0.6395833492279053,
+   "null_mean": 0.27105011833757164,
+   "null_std": 0.013924861493384554,
+   "contribution": 0.36853323089033363,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 960
+  },
+  "2": {
+   "accuracy": 0.596875011920929,
+   "null_mean": 0.2675382433280349,
+   "null_std": 0.01426181978367998,
+   "contribution": 0.32933676859289407,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 960
+  },
+  "3": {
+   "accuracy": 0.5890985131263733,
+   "null_mean": 0.2589676007941365,
+   "null_std": 0.013879498687495355,
+   "contribution": 0.3301309123322368,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 954
+  },
+  "4": {
+   "accuracy": 0.5750000476837158,
+   "null_mean": 0.25618657644689086,
+   "null_std": 0.013711480531009915,
+   "contribution": 0.31881347123682496,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 960
+  }
+ },
+ "note": "p_permutation_cell tests the fold-averaged accuracy against the distribution of fold-averaged accuracies under permutation of the physiological recordings. Its floor is 1/(n_perm+1)."
+}

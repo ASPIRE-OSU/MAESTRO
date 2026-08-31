@@ -1,0 +1,69 @@
+{
+ "task": "hemisphere",
+ "mode": "eeg_gaze_video",
+ "mode_label": "EEG+Gaze+Video",
+ "split_setting": "within",
+ "window_sec": 5.0,
+ "hop_sec": 2.5,
+ "candidates": "qmatch",
+ "n_candidates": 2,
+ "chance_level": 0.5,
+ "n_perm": 10000,
+ "p_floor": 9.999000099990002e-05,
+ "n_folds": 5,
+ "accuracy": 0.728299367427826,
+ "null_mean": 0.5072042283219099,
+ "null_std": 0.003706868987448987,
+ "contribution": 0.22109513910591605,
+ "p_permutation_cell": 9.999000099990002e-05,
+ "n_perm_at_or_above_cell": 0,
+ "z_cell": 59.644713583046205,
+ "folds": {
+  "0": {
+   "accuracy": 0.7394886016845703,
+   "null_mean": 0.5061059779673814,
+   "null_std": 0.008233897321848323,
+   "contribution": 0.23338262371718888,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 3520
+  },
+  "1": {
+   "accuracy": 0.7369318008422852,
+   "null_mean": 0.506325665307045,
+   "null_std": 0.008238748571262097,
+   "contribution": 0.23060613553524012,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 3520
+  },
+  "2": {
+   "accuracy": 0.7517045140266418,
+   "null_mean": 0.5143545288681984,
+   "null_std": 0.008211034085849672,
+   "contribution": 0.2373499851584434,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 3520
+  },
+  "3": {
+   "accuracy": 0.7304173707962036,
+   "null_mean": 0.5072802413880825,
+   "null_std": 0.008409423540907362,
+   "contribution": 0.22313712940812114,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 3498
+  },
+  "4": {
+   "accuracy": 0.6829545497894287,
+   "null_mean": 0.5019547280788421,
+   "null_std": 0.008373936555374802,
+   "contribution": 0.1809998217105866,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 3520
+  }
+ },
+ "note": "p_permutation_cell tests the fold-averaged accuracy against the distribution of fold-averaged accuracies under permutation of the physiological recordings. Its floor is 1/(n_perm+1)."
+}

@@ -1,0 +1,69 @@
+{
+ "task": "aad",
+ "mode": "eeg_imu",
+ "mode_label": "EEG+IMU",
+ "split_setting": "within",
+ "window_sec": 30.0,
+ "hop_sec": 15.0,
+ "candidates": "qmatch",
+ "n_candidates": 4,
+ "chance_level": 0.25,
+ "n_perm": 10000,
+ "p_floor": 9.999000099990002e-05,
+ "n_folds": 5,
+ "accuracy": 0.640813672542572,
+ "null_mean": 0.26573399689465765,
+ "null_std": 0.010742322337182884,
+ "contribution": 0.3750796756479144,
+ "p_permutation_cell": 9.999000099990002e-05,
+ "n_perm_at_or_above_cell": 0,
+ "z_cell": 34.91606971378229,
+ "folds": {
+  "0": {
+   "accuracy": 0.590624988079071,
+   "null_mean": 0.2621475049495697,
+   "null_std": 0.023806652096236017,
+   "contribution": 0.32847748312950137,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 320
+  },
+  "1": {
+   "accuracy": 0.640625,
+   "null_mean": 0.25990000487715004,
+   "null_std": 0.023992853067338667,
+   "contribution": 0.38072499512284996,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 320
+  },
+  "2": {
+   "accuracy": 0.653124988079071,
+   "null_mean": 0.2703359427496791,
+   "null_std": 0.024279215604627667,
+   "contribution": 0.38278904532939195,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 320
+  },
+  "3": {
+   "accuracy": 0.650943398475647,
+   "null_mean": 0.28154590234309435,
+   "null_std": 0.024339865088005144,
+   "contribution": 0.3693974961325526,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 318
+  },
+  "4": {
+   "accuracy": 0.668749988079071,
+   "null_mean": 0.25474062955379484,
+   "null_std": 0.023402291056183,
+   "contribution": 0.4140093585252762,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 320
+  }
+ },
+ "note": "p_permutation_cell tests the fold-averaged accuracy against the distribution of fold-averaged accuracies under permutation of the physiological recordings. Its floor is 1/(n_perm+1)."
+}

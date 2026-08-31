@@ -1,0 +1,69 @@
+{
+ "task": "hemisphere",
+ "mode": "gaze",
+ "mode_label": "Gaze only",
+ "split_setting": "within",
+ "window_sec": 15.0,
+ "hop_sec": 7.5,
+ "candidates": "qmatch",
+ "n_candidates": 2,
+ "chance_level": 0.5,
+ "n_perm": 10000,
+ "p_floor": 9.999000099990002e-05,
+ "n_folds": 5,
+ "accuracy": 0.7379900574684143,
+ "null_mean": 0.4999693505299092,
+ "null_std": 0.007209857168185027,
+ "contribution": 0.23802070693850508,
+ "p_permutation_cell": 9.999000099990002e-05,
+ "n_perm_at_or_above_cell": 0,
+ "z_cell": 33.01323470814471,
+ "folds": {
+  "0": {
+   "accuracy": 0.7583333849906921,
+   "null_mean": 0.5000514868527651,
+   "null_std": 0.016187451798912095,
+   "contribution": 0.258281898137927,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 960
+  },
+  "1": {
+   "accuracy": 0.7552083730697632,
+   "null_mean": 0.499897941750288,
+   "null_std": 0.01616234689541219,
+   "contribution": 0.2553104313194752,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 960
+  },
+  "2": {
+   "accuracy": 0.7333333492279053,
+   "null_mean": 0.5001366947501897,
+   "null_std": 0.016124501876494744,
+   "contribution": 0.23319665447771554,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 960
+  },
+  "3": {
+   "accuracy": 0.7253668308258057,
+   "null_mean": 0.49969956262111664,
+   "null_std": 0.01602556394888543,
+   "contribution": 0.22566726820468902,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 954
+  },
+  "4": {
+   "accuracy": 0.7177083492279053,
+   "null_mean": 0.5000610666751861,
+   "null_std": 0.016392079187777048,
+   "contribution": 0.21764728255271915,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 960
+  }
+ },
+ "note": "p_permutation_cell tests the fold-averaged accuracy against the distribution of fold-averaged accuracies under permutation of the physiological recordings. Its floor is 1/(n_perm+1)."
+}
