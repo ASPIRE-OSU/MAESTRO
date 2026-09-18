@@ -1,0 +1,168 @@
+{
+ "task": "eccentricity",
+ "mode": "imu_video",
+ "mode_label": "IMU+Video",
+ "split_setting": "loso",
+ "window_sec": 5.0,
+ "hop_sec": 2.5,
+ "candidates": "qmatch",
+ "n_candidates": 2,
+ "chance_level": 0.5,
+ "n_perm": 10000,
+ "p_floor": 9.999000099990002e-05,
+ "n_folds": 16,
+ "accuracy": 0.634270315989852,
+ "null_mean": 0.5004515278646723,
+ "null_std": 0.0074920197277537825,
+ "contribution": 0.13381878812517967,
+ "p_permutation_cell": 9.999000099990002e-05,
+ "n_perm_at_or_above_cell": 0,
+ "z_cell": 17.86151037638004,
+ "folds": {
+  "0": {
+   "accuracy": 0.4636363387107849,
+   "null_mean": 0.5003263450443745,
+   "null_std": 0.03181874520390151,
+   "contribution": -0.03669000633358954,
+   "n_perm_at_or_above": 9028,
+   "p_permutation": 0.9028097190280971,
+   "n_windows": 220
+  },
+  "1": {
+   "accuracy": 0.7846889495849609,
+   "null_mean": 0.5078765355944633,
+   "null_std": 0.03315945101953302,
+   "contribution": 0.2768124139904976,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 209
+  },
+  "2": {
+   "accuracy": 0.6181818246841431,
+   "null_mean": 0.4997736176967621,
+   "null_std": 0.02824954206685089,
+   "contribution": 0.11840820698738097,
+   "n_perm_at_or_above": 1,
+   "p_permutation": 0.00019998000199980003,
+   "n_windows": 220
+  },
+  "3": {
+   "accuracy": 0.6727272272109985,
+   "null_mean": 0.49905270863175394,
+   "null_std": 0.029578301250354207,
+   "contribution": 0.1736745185792446,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 220
+  },
+  "4": {
+   "accuracy": 0.7090908885002136,
+   "null_mean": 0.5005245272576809,
+   "null_std": 0.03377018613133563,
+   "contribution": 0.2085663612425327,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 220
+  },
+  "5": {
+   "accuracy": 0.5727272629737854,
+   "null_mean": 0.5003017996519804,
+   "null_std": 0.03369757212820072,
+   "contribution": 0.072425463321805,
+   "n_perm_at_or_above": 210,
+   "p_permutation": 0.021097890210978902,
+   "n_windows": 220
+  },
+  "6": {
+   "accuracy": 0.75,
+   "null_mean": 0.5000963465362788,
+   "null_std": 0.03013384239638346,
+   "contribution": 0.24990365346372123,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 220
+  },
+  "7": {
+   "accuracy": 0.613636314868927,
+   "null_mean": 0.5000790740162134,
+   "null_std": 0.029550043083955858,
+   "contribution": 0.11355724085271357,
+   "n_perm_at_or_above": 1,
+   "p_permutation": 0.00019998000199980003,
+   "n_windows": 220
+  },
+  "8": {
+   "accuracy": 0.4636363387107849,
+   "null_mean": 0.49993725357949736,
+   "null_std": 0.012650567339349399,
+   "contribution": -0.03630091486871245,
+   "n_perm_at_or_above": 10000,
+   "p_permutation": 1.0,
+   "n_windows": 220
+  },
+  "9": {
+   "accuracy": 0.8454545140266418,
+   "null_mean": 0.4995627090126276,
+   "null_std": 0.03223113972860448,
+   "contribution": 0.34589180501401423,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 220
+  },
+  "10": {
+   "accuracy": 0.4681817889213562,
+   "null_mean": 0.4995990741044283,
+   "null_std": 0.03237119858399329,
+   "contribution": -0.031417285183072075,
+   "n_perm_at_or_above": 8698,
+   "p_permutation": 0.8698130186981302,
+   "n_windows": 220
+  },
+  "11": {
+   "accuracy": 0.5045454502105713,
+   "null_mean": 0.5001490739911795,
+   "null_std": 0.021458566252045706,
+   "contribution": 0.004396376219391818,
+   "n_perm_at_or_above": 5054,
+   "p_permutation": 0.5054494550544946,
+   "n_windows": 220
+  },
+  "12": {
+   "accuracy": 0.8090909123420715,
+   "null_mean": 0.5000827086836099,
+   "null_std": 0.031856396133288514,
+   "contribution": 0.3090082036584616,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 220
+  },
+  "13": {
+   "accuracy": 0.48181816935539246,
+   "null_mean": 0.5002363448858261,
+   "null_std": 0.027778723362275742,
+   "contribution": -0.018418175530433678,
+   "n_perm_at_or_above": 7952,
+   "p_permutation": 0.7952204779522047,
+   "n_windows": 220
+  },
+  "14": {
+   "accuracy": 0.7727272510528564,
+   "null_mean": 0.4998081635564566,
+   "null_std": 0.033029629283017066,
+   "contribution": 0.27291908749639987,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 220
+  },
+  "15": {
+   "accuracy": 0.6181818246841431,
+   "null_mean": 0.4998181635916233,
+   "null_std": 0.03286373620195545,
+   "contribution": 0.11836366109251978,
+   "n_perm_at_or_above": 3,
+   "p_permutation": 0.00039996000399960006,
+   "n_windows": 220
+  }
+ },
+ "note": "p_permutation_cell tests the fold-averaged accuracy against the distribution of fold-averaged accuracies under permutation of the physiological recordings. Its floor is 1/(n_perm+1)."
+}

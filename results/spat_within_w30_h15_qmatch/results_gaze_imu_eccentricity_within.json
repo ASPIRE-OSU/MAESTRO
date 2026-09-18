@@ -1,0 +1,179 @@
+{
+  "task": "eccentricity",
+  "groups": [
+    "inner",
+    "outer"
+  ],
+  "mode": "Gaze+IMU",
+  "split_setting": "within",
+  "candidates": "qmatch",
+  "n_candidates": 2,
+  "window_sec": 30.0,
+  "hop_sec": 15.0,
+  "audio_only_probe": 0.47058823529411764,
+  "chance_level": 0.5,
+  "folds": {
+    "0": {
+      "accuracy": 0.6343749761581421,
+      "null_mean": 0.5009375050663948,
+      "null_std": 0.023072159471193506,
+      "contribution": 0.1334374710917473,
+      "p_permutation": 0.047619047619047616,
+      "zeros_accuracy": 0.5,
+      "flip_rate": 0.4825000032782555,
+      "collapse": 0.015611774288117886,
+      "chance": 0.5,
+      "n_windows": 320,
+      "null_position": 0.504062494635582,
+      "contribution_position": 0.13031248152256014,
+      "null_trial": 0.6343749761581421,
+      "contribution_trial": 0.0,
+      "best_val_contribution": 0.16470590233802795,
+      "n_inner_train_windows": 1023,
+      "n_inner_val_windows": 255,
+      "test_group_dist": {
+        "0": 160,
+        "1": 160
+      }
+    },
+    "1": {
+      "accuracy": 0.5718749761581421,
+      "null_mean": 0.5003124982118606,
+      "null_std": 0.024324871175475916,
+      "contribution": 0.07156247794628146,
+      "p_permutation": 0.047619047619047616,
+      "zeros_accuracy": 0.5,
+      "flip_rate": 0.4987499937415123,
+      "collapse": 0.010537470690906048,
+      "chance": 0.5,
+      "n_windows": 320,
+      "null_position": 0.49093750268220904,
+      "contribution_position": 0.08093747347593305,
+      "null_trial": 0.5718749761581421,
+      "contribution_trial": 0.0,
+      "best_val_contribution": 0.109375,
+      "n_inner_train_windows": 1022,
+      "n_inner_val_windows": 256,
+      "test_group_dist": {
+        "0": 160,
+        "1": 160
+      }
+    },
+    "2": {
+      "accuracy": 0.596875011920929,
+      "null_mean": 0.4937500014901161,
+      "null_std": 0.03560306543577281,
+      "contribution": 0.10312501043081285,
+      "p_permutation": 0.047619047619047616,
+      "zeros_accuracy": 0.5,
+      "flip_rate": 0.48750000149011613,
+      "collapse": 0.012626944109797478,
+      "chance": 0.5,
+      "n_windows": 320,
+      "null_position": 0.505312493443489,
+      "contribution_position": 0.0915625184774399,
+      "null_trial": 0.596875011920929,
+      "contribution_trial": 0.0,
+      "best_val_contribution": 0.1171875,
+      "n_inner_train_windows": 1022,
+      "n_inner_val_windows": 256,
+      "test_group_dist": {
+        "0": 160,
+        "1": 160
+      }
+    },
+    "3": {
+      "accuracy": 0.6320754885673523,
+      "null_mean": 0.4902515709400177,
+      "null_std": 0.03064867980721973,
+      "contribution": 0.1418239176273346,
+      "p_permutation": 0.047619047619047616,
+      "zeros_accuracy": 0.5,
+      "flip_rate": 0.4871069237589836,
+      "collapse": 0.006479817442595959,
+      "chance": 0.5,
+      "n_windows": 318,
+      "null_position": 0.490880498290062,
+      "contribution_position": 0.14119499027729032,
+      "null_trial": 0.6320754885673523,
+      "contribution_trial": 0.0,
+      "best_val_contribution": 0.14322916666666669,
+      "n_inner_train_windows": 1024,
+      "n_inner_val_windows": 256,
+      "test_group_dist": {
+        "0": 159,
+        "1": 159
+      }
+    },
+    "4": {
+      "accuracy": 0.581250011920929,
+      "null_mean": 0.5009374976158142,
+      "null_std": 0.029466280174821776,
+      "contribution": 0.08031251430511477,
+      "p_permutation": 0.047619047619047616,
+      "zeros_accuracy": 0.5,
+      "flip_rate": 0.470625002682209,
+      "collapse": 0.008857707493007183,
+      "chance": 0.5,
+      "n_windows": 320,
+      "null_position": 0.4993750035762787,
+      "contribution_position": 0.08187500834465028,
+      "null_trial": 0.581250011920929,
+      "contribution_trial": 0.0,
+      "best_val_contribution": 0.15424837668736774,
+      "n_inner_train_windows": 1023,
+      "n_inner_val_windows": 255,
+      "test_group_dist": {
+        "0": 160,
+        "1": 160
+      }
+    }
+  },
+  "mean": {
+    "accuracy": [
+      0.6032900929450988,
+      0.025724295770088463
+    ],
+    "null_mean": [
+      0.49723781466484074,
+      0.004422702432762158
+    ],
+    "contribution": [
+      0.1060522782802582,
+      0.02789340294957146
+    ],
+    "zeros_accuracy": [
+      0.5,
+      0.0
+    ],
+    "flip_rate": [
+      0.4852963849902153,
+      0.009079678124817931
+    ],
+    "collapse": [
+      0.01082274280488491,
+      0.00313029422113634
+    ],
+    "p_permutation": [
+      0.047619047619047616,
+      0.0
+    ],
+    "null_position": [
+      0.4981135985255241,
+      0.006206749330187552
+    ],
+    "contribution_position": [
+      0.10517649441957473,
+      0.025475398415149265
+    ],
+    "null_trial": [
+      0.6032900929450988,
+      0.025724295770088463
+    ],
+    "contribution_trial": [
+      0.0,
+      0.0
+    ]
+  },
+  "note": "Report accuracy WITH null_mean and contribution. Accuracy alone does not distinguish a decoder that uses the recording from one that reads the two grouped references."
+}

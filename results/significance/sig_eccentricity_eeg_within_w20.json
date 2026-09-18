@@ -1,0 +1,69 @@
+{
+ "task": "eccentricity",
+ "mode": "eeg",
+ "mode_label": "EEG only",
+ "split_setting": "within",
+ "window_sec": 20.0,
+ "hop_sec": 10.0,
+ "candidates": "qmatch",
+ "n_candidates": 2,
+ "chance_level": 0.5,
+ "n_perm": 10000,
+ "p_floor": 9.999000099990002e-05,
+ "n_folds": 5,
+ "accuracy": 0.654687511920929,
+ "null_mean": 0.49654857136249536,
+ "null_std": 0.008648271982587013,
+ "contribution": 0.15813894055843364,
+ "p_permutation_cell": 9.999000099990002e-05,
+ "n_perm_at_or_above_cell": 0,
+ "z_cell": 18.285611375145827,
+ "folds": {
+  "0": {
+   "accuracy": 0.65625,
+   "null_mean": 0.4813807882785797,
+   "null_std": 0.018985685414481552,
+   "contribution": 0.17486921172142028,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 640
+  },
+  "1": {
+   "accuracy": 0.6781250238418579,
+   "null_mean": 0.5037261032223701,
+   "null_std": 0.019312109350040636,
+   "contribution": 0.1743989206194878,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 640
+  },
+  "2": {
+   "accuracy": 0.6656250357627869,
+   "null_mean": 0.5172400108128786,
+   "null_std": 0.019060884357448696,
+   "contribution": 0.14838502494990824,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 640
+  },
+  "3": {
+   "accuracy": 0.645312488079071,
+   "null_mean": 0.5140317295044661,
+   "null_std": 0.019571235936933364,
+   "contribution": 0.13128075857460497,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 640
+  },
+  "4": {
+   "accuracy": 0.628125011920929,
+   "null_mean": 0.46636422499418256,
+   "null_std": 0.01900162381614933,
+   "contribution": 0.1617607869267464,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 640
+  }
+ },
+ "note": "p_permutation_cell tests the fold-averaged accuracy against the distribution of fold-averaged accuracies under permutation of the physiological recordings. Its floor is 1/(n_perm+1)."
+}

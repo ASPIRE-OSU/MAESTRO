@@ -307,12 +307,18 @@ class AADModel(nn.Module):
                  direction: str = "centred",
                  dropout: float = 0.1,
                  modality_dropout: float = 0.3,
-                 adversary: bool = True):
+                 adversary: bool = True,
+                 n_classes: int = N_SPEAKERS):
         super().__init__()
         assert mode in VALID_MODES, f"mode must be one of {VALID_MODES}"
         self.mode = mode
         self.D_common = D_common
         self.modality_dropout = modality_dropout
+        # Number of classes the ORIENTATION branch predicts, and hence the
+        # number of candidate slots.  4 for T1 (loudspeaker index); 2 for the
+        # binary spatial tasks T2/T3, where the classes are the two grouped
+        # references (left/right, inner/outer).
+        self.n_classes = n_classes
 
         use_eeg, use_gaze, use_imu, use_video = mode_uses(mode)
         widths = {"eeg": D_eeg, "gaze": D_gaze, "imu": D_imu, "video": D_video}
@@ -349,10 +355,11 @@ class AADModel(nn.Module):
 
         # orientation branch: every modality present
         self.spatial_heads = nn.ModuleDict(
-            {m: SpatialHead(D_common) for m in self.modalities}
+            {m: SpatialHead(D_common, n_spk=n_classes) for m in self.modalities}
         )
         if len(self.modalities) > 1:
-            self.spatial_fuse = SpatialHead(D_common * len(self.modalities))
+            self.spatial_fuse = SpatialHead(D_common * len(self.modalities),
+                                            n_spk=n_classes)
 
     # ── pieces ────────────────────────────────────────────────────────────────
 

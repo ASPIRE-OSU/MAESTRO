@@ -1,0 +1,69 @@
+{
+ "task": "hemisphere",
+ "mode": "eeg",
+ "mode_label": "EEG only",
+ "split_setting": "within",
+ "window_sec": 20.0,
+ "hop_sec": 10.0,
+ "candidates": "qmatch",
+ "n_candidates": 2,
+ "chance_level": 0.5,
+ "n_perm": 10000,
+ "p_floor": 9.999000099990002e-05,
+ "n_folds": 5,
+ "accuracy": 0.5581250071525574,
+ "null_mean": 0.5366972296130657,
+ "null_std": 0.008228142631432787,
+ "contribution": 0.021427777539491766,
+ "p_permutation_cell": 0.006199380061993801,
+ "n_perm_at_or_above_cell": 61,
+ "z_cell": 2.604205893931652,
+ "folds": {
+  "0": {
+   "accuracy": 0.5875000357627869,
+   "null_mean": 0.528028136497736,
+   "null_std": 0.018204951811351747,
+   "contribution": 0.05947189926505092,
+   "n_perm_at_or_above": 7,
+   "p_permutation": 0.0007999200079992001,
+   "n_windows": 640
+  },
+  "1": {
+   "accuracy": 0.510937511920929,
+   "null_mean": 0.5151584478735923,
+   "null_std": 0.019015238236406648,
+   "contribution": -0.004220935952663374,
+   "n_perm_at_or_above": 6088,
+   "p_permutation": 0.6088391160883911,
+   "n_windows": 640
+  },
+  "2": {
+   "accuracy": 0.5625,
+   "null_mean": 0.5208196987092495,
+   "null_std": 0.01837613505875595,
+   "contribution": 0.04168030129075051,
+   "n_perm_at_or_above": 121,
+   "p_permutation": 0.012198780121987801,
+   "n_windows": 640
+  },
+  "3": {
+   "accuracy": 0.504687488079071,
+   "null_mean": 0.5030957905232907,
+   "null_std": 0.019296529329890642,
+   "contribution": 0.0015916975557803692,
+   "n_perm_at_or_above": 4840,
+   "p_permutation": 0.48405159484051596,
+   "n_windows": 640
+  },
+  "4": {
+   "accuracy": 0.625,
+   "null_mean": 0.6163840744614602,
+   "null_std": 0.017465681708050695,
+   "contribution": 0.008615925538539848,
+   "n_perm_at_or_above": 3271,
+   "p_permutation": 0.3271672832716728,
+   "n_windows": 640
+  }
+ },
+ "note": "p_permutation_cell tests the fold-averaged accuracy against the distribution of fold-averaged accuracies under permutation of the physiological recordings. Its floor is 1/(n_perm+1)."
+}

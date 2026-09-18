@@ -1,0 +1,69 @@
+{
+ "task": "hemisphere",
+ "mode": "eeg_imu_video",
+ "mode_label": "EEG+IMU+Video",
+ "split_setting": "within",
+ "window_sec": 10.0,
+ "hop_sec": 5.0,
+ "candidates": "qmatch",
+ "n_candidates": 2,
+ "chance_level": 0.5,
+ "n_perm": 10000,
+ "p_floor": 9.999000099990002e-05,
+ "n_folds": 5,
+ "accuracy": 0.6457334876060485,
+ "null_mean": 0.5036323628318311,
+ "null_std": 0.005362727591658783,
+ "contribution": 0.14210112477421744,
+ "p_permutation_cell": 9.999000099990002e-05,
+ "n_perm_at_or_above_cell": 0,
+ "z_cell": 26.49791963491571,
+ "folds": {
+  "0": {
+   "accuracy": 0.6712499856948853,
+   "null_mean": 0.49842898917794226,
+   "null_std": 0.012003962333618641,
+   "contribution": 0.172820996516943,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 1600
+  },
+  "1": {
+   "accuracy": 0.6825000047683716,
+   "null_mean": 0.5276932382851839,
+   "null_std": 0.011752415804687413,
+   "contribution": 0.1548067664831877,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 1600
+  },
+  "2": {
+   "accuracy": 0.6331250071525574,
+   "null_mean": 0.5054817390114069,
+   "null_std": 0.011594055872014524,
+   "contribution": 0.12764326814115046,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 1600
+  },
+  "3": {
+   "accuracy": 0.5867924690246582,
+   "null_mean": 0.491318608674407,
+   "null_std": 0.012157176951703891,
+   "contribution": 0.09547386035025118,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 1590
+  },
+  "4": {
+   "accuracy": 0.6549999713897705,
+   "null_mean": 0.4952392390102148,
+   "null_std": 0.011802388217561417,
+   "contribution": 0.15976073237955568,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 1600
+  }
+ },
+ "note": "p_permutation_cell tests the fold-averaged accuracy against the distribution of fold-averaged accuracies under permutation of the physiological recordings. Its floor is 1/(n_perm+1)."
+}

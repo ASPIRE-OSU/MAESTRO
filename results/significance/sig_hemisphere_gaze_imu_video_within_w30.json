@@ -1,0 +1,69 @@
+{
+ "task": "hemisphere",
+ "mode": "gaze_imu_video",
+ "mode_label": "Gaze+IMU+Video",
+ "split_setting": "within",
+ "window_sec": 30.0,
+ "hop_sec": 15.0,
+ "candidates": "qmatch",
+ "n_candidates": 2,
+ "chance_level": 0.5,
+ "n_perm": 10000,
+ "p_floor": 9.999000099990002e-05,
+ "n_folds": 5,
+ "accuracy": 0.7621619462966919,
+ "null_mean": 0.49985761432170867,
+ "null_std": 0.012307934020793967,
+ "contribution": 0.2623043319749832,
+ "p_permutation_cell": 9.999000099990002e-05,
+ "n_perm_at_or_above_cell": 0,
+ "z_cell": 21.31180842459135,
+ "folds": {
+  "0": {
+   "accuracy": 0.78125,
+   "null_mean": 0.5007218836814165,
+   "null_std": 0.027413989483355935,
+   "contribution": 0.28052811631858354,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 320
+  },
+  "1": {
+   "accuracy": 0.768750011920929,
+   "null_mean": 0.4993925086736679,
+   "null_std": 0.027106298640903578,
+   "contribution": 0.26935750324726104,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 320
+  },
+  "2": {
+   "accuracy": 0.78125,
+   "null_mean": 0.49964063372612,
+   "null_std": 0.02732980642356139,
+   "contribution": 0.28160936627388,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 320
+  },
+  "3": {
+   "accuracy": 0.7295597195625305,
+   "null_mean": 0.499589286878705,
+   "null_std": 0.028365525252275953,
+   "contribution": 0.2299704326838255,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 318
+  },
+  "4": {
+   "accuracy": 0.75,
+   "null_mean": 0.49994375864863394,
+   "null_std": 0.02812260171821117,
+   "contribution": 0.25005624135136606,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 320
+  }
+ },
+ "note": "p_permutation_cell tests the fold-averaged accuracy against the distribution of fold-averaged accuracies under permutation of the physiological recordings. Its floor is 1/(n_perm+1)."
+}

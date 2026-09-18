@@ -23,6 +23,7 @@ from torch.utils.data import Dataset, Sampler
 
 EEG_FS_RAW   = 500
 AUDIO_FS_RAW = 16_000
+TRIAL_SEC    = 30.0   # nominal trial duration; see the padding note in load_trial
 TARGET_FS    = 64
 WINDOW_SEC   = 30
 WINDOW_SAMP  = TARGET_FS * WINDOW_SEC   # 1920
@@ -797,9 +798,21 @@ def load_trial(local_path: str,
               f"({window_sec}/{hop_sec_eff})")
         return None
 
-    pad_to = ((min_len + window_samp - 1) // window_samp) * window_samp
-    if pad_to - min_len <= TARGET_FS:
-        min_len = pad_to
+    # Trials are nominally 30 s but land at 1908 samples (29.81 s) after the
+    # streams are clipped to their shared span.  Pad every trial to the nominal
+    # TRIAL_SEC so that the window count follows the stated hop rule identically
+    # at every window size.
+    #
+    # The previous rule padded to the next whole multiple of `window_samp`,
+    # which is window-size dependent and silently changed the protocol at 20 s:
+    # for a 20 s window the next multiple is 2560 samples (40 s), more than the
+    # one-second padding allowance, so no padding was applied and a 29.81 s
+    # trial admitted a single 20 s window instead of the two the hop rule
+    # implies.  Every other window size padded to 1920 and was unaffected, so
+    # 20 s alone was evaluated on a third of the windows of the 15 s condition.
+    nominal = int(round(TRIAL_SEC * TARGET_FS))
+    if 0 < nominal - min_len <= TARGET_FS:
+        min_len = nominal
     if min_len < window_samp:
         return None
 
@@ -1312,3 +1325,86 @@ def audio_only_probe(bank: dict, groups: np.ndarray,
         clf = LogisticRegression(max_iter=2000).fit(sc.transform(X[tr]), y[tr])
         oof[te] = clf.predict_proba(sc.transform(X[te]))[:, 1]
     return float((oof.reshape(N, K).argmax(1) == labels).mean())
+
+
+# ── T2 / T3 grouped candidate references ──────────────────────────────────────
+
+# Speaker index (0-based) -> group, for the two binary spatial tasks.
+# T2 hemisphere : S1,S2 = left(0), S3,S4 = right(1)
+# T3 eccentricity: S2,S3 = inner(0), S1,S4 = outer(1)
+SPATIAL_GROUPS = {
+    "hemisphere":   {0: 0, 1: 0, 2: 1, 3: 1},
+    "eccentricity": {0: 1, 1: 0, 2: 0, 3: 1},
+}
+SPATIAL_GROUP_NAMES = {
+    "hemisphere":   ("left", "right"),
+    "eccentricity": ("inner", "outer"),
+}
+
+
+def group_labels(att_idxs: np.ndarray, task: str) -> np.ndarray:
+    """Attended loudspeaker index (0..3) -> binary group label for `task`."""
+    g = SPATIAL_GROUPS[task]
+    return np.array([g[int(i)] for i in att_idxs], dtype=np.int64)
+
+
+def make_grouped_candidate_bank(data: dict, task: str,
+                                construction: str = "qmatch") -> dict:
+    """Candidate bank for the binary spatial tasks T2 and T3.
+
+    The task's two references are the per-group MEANS of the four co-present
+    talker envelopes, as in the original formulation:
+
+        T2   a_left  = (a_1 + a_2)/2      a_right = (a_3 + a_4)/2
+        T3   a_inner = (a_2 + a_3)/2      a_outer = (a_1 + a_4)/2
+
+    WHY THIS NEEDS THE SAME TREATMENT AS T1.  The attended talker is prepared
+    differently from its competitors -- not by gain (crest factor, which no gain
+    can alter, differs by 9.4 dB) but in the SHAPE of its amplitude envelope,
+    and shape statistics are invariant to affine rescaling, so they survive the
+    per-candidate z-score untouched.  Averaging two talkers does not remove
+    that: whichever reference contains the attended talker inherits its
+    signature, and the task is binary, so a decoder with a learned audio encoder
+    only has to decide which of two references looks "attended".  Left
+    unaddressed this is a strictly easier shortcut than in T1.
+
+    construction:
+      "raw"     the two group means, standardised.  CONFOUNDED; retained only to
+                reproduce the previous revision.
+      "qmatch"  the two group means, distribution-matched (default).  Both
+                references then carry the identical multiset of values -- same
+                kurtosis, skew, sparsity, dynamic range, silence fraction --
+                and differ only in temporal ordering, which is the property a
+                neural response tracks.
+
+    Returns the same structure as `make_candidate_bank`, with K = 2 and `pos`
+    the attended group, so `AADDataset` consumes it unchanged.
+    """
+    if task not in SPATIAL_GROUPS:
+        raise ValueError(f"unknown task '{task}'; expected one of "
+                         f"{tuple(SPATIAL_GROUPS)}")
+    if construction not in ("raw", "qmatch"):
+        raise ValueError("grouped references support 'raw' or 'qmatch' only; "
+                         "same-talker negatives are not defined for a task "
+                         "whose classes are spatial groups")
+
+    members = {0: [], 1: []}
+    for spk, grp in SPATIAL_GROUPS[task].items():
+        members[grp].append(spk)
+
+    A = np.stack([
+        np.mean([data["audio"][s][:, :, 0] for s in members[g]], axis=0)
+        for g in (0, 1)
+    ], axis=1).astype(np.float32)                       # (N, 2, T)
+
+    # standardise each reference, then (optionally) equalise their marginals
+    mu = A.mean(axis=2, keepdims=True)
+    sd = A.std(axis=2, keepdims=True) + 1e-8
+    A = (A - mu) / sd
+    if construction == "qmatch":
+        A = quantile_match_candidates(A)
+
+    return {"construction": f"{task}_{construction}",
+            "A": np.ascontiguousarray(A, dtype=np.float32),
+            "pos": group_labels(data["att_idxs"], task),
+            "spk_meaningful": True}

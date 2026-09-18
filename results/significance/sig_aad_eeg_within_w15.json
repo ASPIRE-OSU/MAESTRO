@@ -1,0 +1,69 @@
+{
+ "task": "aad",
+ "mode": "eeg",
+ "mode_label": "EEG only",
+ "split_setting": "within",
+ "window_sec": 15.0,
+ "hop_sec": 7.5,
+ "candidates": "qmatch",
+ "n_candidates": 4,
+ "chance_level": 0.25,
+ "n_perm": 10000,
+ "p_floor": 9.999000099990002e-05,
+ "n_folds": 5,
+ "accuracy": 0.5316666960716248,
+ "null_mean": 0.27448486873477695,
+ "null_std": 0.0061945342501370316,
+ "contribution": 0.2571818273368478,
+ "p_permutation_cell": 9.999000099990002e-05,
+ "n_perm_at_or_above_cell": 0,
+ "z_cell": 41.517540610844314,
+ "folds": {
+  "0": {
+   "accuracy": 0.5447916984558105,
+   "null_mean": 0.33327262179255485,
+   "null_std": 0.014385208690584178,
+   "contribution": 0.2115190766632557,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 960
+  },
+  "1": {
+   "accuracy": 0.5437500476837158,
+   "null_mean": 0.2534992846697569,
+   "null_std": 0.013617986485389361,
+   "contribution": 0.2902507630139589,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 960
+  },
+  "2": {
+   "accuracy": 0.5395833849906921,
+   "null_mean": 0.2755459518536925,
+   "null_std": 0.014185992544915798,
+   "contribution": 0.2640374331369996,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 960
+  },
+  "3": {
+   "accuracy": 0.5302083492279053,
+   "null_mean": 0.2706262643367052,
+   "null_std": 0.0138060274945465,
+   "contribution": 0.25958208489120005,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 960
+  },
+  "4": {
+   "accuracy": 0.5,
+   "null_mean": 0.2394802210211754,
+   "null_std": 0.013114408557528472,
+   "contribution": 0.2605197789788246,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 960
+  }
+ },
+ "note": "p_permutation_cell tests the fold-averaged accuracy against the distribution of fold-averaged accuracies under permutation of the physiological recordings. Its floor is 1/(n_perm+1)."
+}

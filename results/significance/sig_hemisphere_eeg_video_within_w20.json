@@ -1,0 +1,69 @@
+{
+ "task": "hemisphere",
+ "mode": "eeg_video",
+ "mode_label": "EEG+Video",
+ "split_setting": "within",
+ "window_sec": 20.0,
+ "hop_sec": 10.0,
+ "candidates": "qmatch",
+ "n_candidates": 2,
+ "chance_level": 0.5,
+ "n_perm": 10000,
+ "p_floor": 9.999000099990002e-05,
+ "n_folds": 5,
+ "accuracy": 0.6396875023841858,
+ "null_mean": 0.5164158851528168,
+ "null_std": 0.007942392083595375,
+ "contribution": 0.12327161723136904,
+ "p_permutation_cell": 9.999000099990002e-05,
+ "n_perm_at_or_above_cell": 0,
+ "z_cell": 15.520716670543104,
+ "folds": {
+  "0": {
+   "accuracy": 0.637499988079071,
+   "null_mean": 0.4734404751598835,
+   "null_std": 0.018255347469132606,
+   "contribution": 0.16405951291918752,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 640
+  },
+  "1": {
+   "accuracy": 0.5796875357627869,
+   "null_mean": 0.5056573536068201,
+   "null_std": 0.015855807609920183,
+   "contribution": 0.0740301821559668,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 640
+  },
+  "2": {
+   "accuracy": 0.640625,
+   "null_mean": 0.5255107924491167,
+   "null_std": 0.01846438778037583,
+   "contribution": 0.11511420755088331,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 640
+  },
+  "3": {
+   "accuracy": 0.6484375,
+   "null_mean": 0.5340229804813862,
+   "null_std": 0.018673151558770466,
+   "contribution": 0.11441451951861381,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 640
+  },
+  "4": {
+   "accuracy": 0.692187488079071,
+   "null_mean": 0.5434478240668774,
+   "null_std": 0.018808845743090972,
+   "contribution": 0.14873966401219363,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 640
+  }
+ },
+ "note": "p_permutation_cell tests the fold-averaged accuracy against the distribution of fold-averaged accuracies under permutation of the physiological recordings. Its floor is 1/(n_perm+1)."
+}

@@ -1,0 +1,69 @@
+{
+ "task": "hemisphere",
+ "mode": "video",
+ "mode_label": "Video only",
+ "split_setting": "within",
+ "window_sec": 10.0,
+ "hop_sec": 5.0,
+ "candidates": "qmatch",
+ "n_candidates": 2,
+ "chance_level": 0.5,
+ "n_perm": 10000,
+ "p_floor": 9.999000099990002e-05,
+ "n_folds": 5,
+ "accuracy": 0.653249979019165,
+ "null_mean": 0.5000546905463934,
+ "null_std": 0.005610014321064872,
+ "contribution": 0.15319528847277164,
+ "p_permutation_cell": 9.999000099990002e-05,
+ "n_perm_at_or_above_cell": 0,
+ "z_cell": 27.307468337511338,
+ "folds": {
+  "0": {
+   "accuracy": 0.6787499785423279,
+   "null_mean": 0.5002197362512351,
+   "null_std": 0.012491878166635125,
+   "contribution": 0.17853024229109282,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 1600
+  },
+  "1": {
+   "accuracy": 0.6706249713897705,
+   "null_mean": 0.5000827417016029,
+   "null_std": 0.012510396167768655,
+   "contribution": 0.17054222968816757,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 1600
+  },
+  "2": {
+   "accuracy": 0.6618750095367432,
+   "null_mean": 0.49988749165534974,
+   "null_std": 0.012395898095487242,
+   "contribution": 0.16198751788139343,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 1600
+  },
+  "3": {
+   "accuracy": 0.6031249761581421,
+   "null_mean": 0.5000129915893078,
+   "null_std": 0.01250799002597073,
+   "contribution": 0.1031119845688343,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 1600
+  },
+  "4": {
+   "accuracy": 0.6518749594688416,
+   "null_mean": 0.5000704915344715,
+   "null_std": 0.012570980023396952,
+   "contribution": 0.15180446793437008,
+   "n_perm_at_or_above": 0,
+   "p_permutation": 9.999000099990002e-05,
+   "n_windows": 1600
+  }
+ },
+ "note": "p_permutation_cell tests the fold-averaged accuracy against the distribution of fold-averaged accuracies under permutation of the physiological recordings. Its floor is 1/(n_perm+1)."
+}
