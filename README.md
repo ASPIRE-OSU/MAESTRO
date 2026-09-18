@@ -1,37 +1,8 @@
 # MAESTRO Benchmark
 
-Official benchmark code for the **MAESTRO** dataset — the Multimodal Auditory-attention Egocentric Speech-TRacking Open corpus. This repository contains the preprocessing pipeline, baseline models, training scripts, and pre-computed results for all three benchmark tasks defined in the accompanying paper.
+Official benchmark code for the **MAESTRO** dataset — the Multimodal Auditory-attention Egocentric Speech-TRacking Open corpus. This repository contains the preprocessing pipeline, the baseline model, training scripts, and pre-computed results for the attended-speaker decoding benchmark defined in the accompanying paper.
 
 > **Dataset:** [HuggingFace — aspire-osu/maestro-eeg-dataset](https://huggingface.co/datasets/aspire-osu/maestro-eeg-dataset)
-
----
-
-> ### ⚠️ Branch `fixes` — leakage-controlled revision
->
-> The T1 results previously reported by this repository (~0.50 four-way accuracy
-> against a 0.25 chance level) were **not attributable to the physiological
-> recording**. Permuting the recordings across test windows — keeping each
-> window's own audio candidates and its own label — changed accuracy by 0.0009,
-> and substituting zeros for the recording changed it by nothing. The decision
-> was made entirely from the candidate audio, for every modality.
->
-> Two causes. **The candidate set was acoustically confounded:** the attended
-> talker was prepared differently from its competitors, and the resulting
-> difference in envelope *shape* is invariant to amplitude normalisation, so a
-> logistic probe on eight scale-free statistics identifies the attended talker
-> 56 % of the time from the audio alone. **The scoring function admitted a
-> degenerate optimum:** with a time-constant recording embedding it reduced
-> exactly to a linear classifier on the audio, which is easier to reach than the
-> intended solution.
->
-> This branch fixes both, rebuilds the encoder, gives the behavioural modalities
-> a task they can perform, and adds the permutation control that was missing.
-> See [What changed](#what-changed-on-this-branch). The previous revision is
-> preserved as `scripts/*_legacy.py` and its outputs as `results_legacy/`.
->
-> **Report accuracy together with the permutation null and their difference.**
-> An accuracy on its own does not distinguish a decoder that uses the recording
-> from one that reads the candidates.
 
 ---
 
@@ -51,70 +22,44 @@ MAESTRO is a 16-subject, 100-trial multimodal auditory attention decoding (AAD) 
 
 ---
 
-## Benchmark Tasks
+## Benchmark Task
 
-Every task is evaluated at **five decision window sizes** (5, 10, 15, 20, 30 s). T1 is evaluated under **both** official split protocols; T2 and T3 are evaluated under LOSO only.
+The benchmark is **four-class attended-speaker decoding**: given a decision window, identify which of the four simultaneously presented speakers the listener is attending to (chance 25%). It is evaluated at **five decision window sizes** (5, 10, 15, 20, 30 s) under **both** official split protocols:
 
-| Task | Description | Chance | Splits evaluated |
-|---|---|---|---|
-| **T1** | Four-class attended source decoding | 25% | within-subject, leave-one-subject-out (LOSO) |
-| **T2** | Attended hemisphere decoding (left vs right) | 50% | LOSO |
-| **T3** | Attended eccentricity decoding (inner vs outer) | 50% | LOSO |
-
-**within-subject**: 5-fold cross-validation, folds defined by trial content and pooled across all 16 subjects (content generalization).
-**LOSO**: 16 folds, one held-out subject per fold, trained on the other 15 (subject generalization).
+- **within-subject** — 5-fold cross-validation, folds defined by trial content and pooled across all 16 subjects. Every subject appears in both train and test, on disjoint trial content (content generalization).
+- **leave-one-subject-out (LOSO)** — 16 folds, one held-out subject per fold, trained on the other 15 (subject generalization).
 
 Both protocols read the dataset's own official split definitions from `splits/{within,loso}/fold_*.json` rather than reconstructing splits internally — see [Dataset Format](#dataset-format).
+
+> The repository also contains code and results for two auxiliary spatial tasks — hemisphere (left/right) and eccentricity (inner/outer) decoding — under `scripts/train_hemisphere.py`, `scripts/train_eccentricity.py`, and the `spat_*` result folders. These are not part of the paper's benchmark and are provided for completeness only.
 
 ---
 
 ## Results
 
-All tables report accuracy (mean ± std across folds — 5 folds for within-subject, 16 held-out subjects for LOSO) across all five decision window sizes. **"Best fusion" results are produced by `late_fusion.py`**: it combines the *independently-trained, frozen* single-modality checkpoints via a small learned softmax-weighted combiner — it does **not** retrain the encoders. "Best fusion" is the best-performing combination among all 11 multi-modality combinations (6 pairs, 4 triples, 1 full four-way combination) at that specific task/split/window, shown in parentheses — it is not always the full four-modality combination, and the winning combination is not fixed across window sizes.
+Accuracy (mean ± std across folds — 5 folds for within-subject, 16 held-out subjects for LOSO) for the four single modalities and the best-performing multimodal combination at each window size. **"Best multimodal"** is the highest-accuracy combination among all 11 multi-modality combinations (6 pairs, 4 triples, 1 full four-way) at that split and window, named in parentheses; it is not always the full four-modality combination and it varies across window sizes.
 
-Full per-mode results for all 15 modality combinations, paired significance testing against EEG-only, and the SNR-stratified analysis are reported in the paper and provided as JSON files under `results/`.
+All results are produced by a single model trained end-to-end (`train_aad.py`); there is no separate late-fusion stage. Full per-mode results for all 15 modality combinations, paired significance testing against EEG-only, the permutation null and contribution, and the SNR-stratified analysis are provided as JSON under `results/`.
 
-### T1 — Four-class attended source decoding, within-subject (chance 25%)
+### Within-subject (chance 25%)
 
-| Window | EEG | Gaze | IMU | Video | Best fusion |
+| Window | EEG | Gaze | IMU | Video | Best multimodal |
 |---|---|---|---|---|---|
-| 5s | 47.58% ± 6.18% | 47.65% ± 4.69% | 47.29% ± 5.09% | 48.95% ± 6.00% | 49.97% ± 6.03% (Gaze+IMU+Video) |
-| 10s | 47.64% ± 7.95% | 48.54% ± 5.61% | 49.85% ± 6.85% | 48.99% ± 3.03% | 53.42% ± 6.20% (EEG+IMU+Video) |
-| 15s | 48.94% ± 7.39% | 50.29% ± 4.58% | 49.01% ± 6.77% | 47.71% ± 3.12% | 51.76% ± 5.63% (EEG+Gaze+IMU+Video) |
-| 20s | 52.87% ± 7.83% | 51.80% ± 5.14% | 48.05% ± 10.28% | 43.12% ± 5.03% | 53.99% ± 5.79% (Gaze+IMU) |
-| 30s | 53.06% ± 8.77% | 53.87% ± 3.89% | 50.36% ± 5.19% | 45.50% ± 9.25% | 55.13% ± 6.33% (EEG+IMU) |
+| 5s | 43.63% ± 1.76% | 37.13% ± 1.16% | 38.21% ± 2.80% | 43.71% ± 4.20% | 56.64% ± 3.28% (EEG+Gaze+IMU+Video) |
+| 10s | 47.57% ± 4.08% | 37.58% ± 1.75% | 38.75% ± 2.13% | 42.59% ± 4.90% | 58.45% ± 3.86% (EEG+Gaze+Video) |
+| 15s | 53.17% ± 1.66% | 39.98% ± 2.10% | 38.84% ± 2.44% | 44.33% ± 3.86% | 61.20% ± 1.83% (EEG+Gaze+IMU+Video) |
+| 20s | 53.62% ± 2.67% | 37.95% ± 2.38% | 34.85% ± 4.16% | 43.16% ± 2.44% | 62.80% ± 2.72% (EEG+Gaze+IMU+Video) |
+| 30s | 59.06% ± 2.04% | 36.04% ± 2.79% | 35.41% ± 4.14% | 43.37% ± 6.63% | 69.83% ± 2.33% (EEG+Gaze+Video) |
 
-### T1 — Four-class attended source decoding, leave-one-subject-out (chance 25%)
+### Leave-one-subject-out (chance 25%)
 
-| Window | EEG | Gaze | IMU | Video | Best fusion |
+| Window | EEG | Gaze | IMU | Video | Best multimodal |
 |---|---|---|---|---|---|
-| 5s | 49.70% ± 2.59% | 50.01% ± 2.50% | 49.92% ± 2.42% | 50.42% ± 2.55% | 50.90% ± 2.83% (IMU+Video) |
-| 10s | 44.63% ± 6.47% | 49.19% ± 5.69% | 46.18% ± 5.68% | 46.73% ± 3.34% | 50.73% ± 2.82% (Gaze+Video) |
-| 15s | 45.93% ± 6.45% | 47.45% ± 4.68% | 48.42% ± 5.98% | 48.65% ± 5.45% | 50.06% ± 6.55% (IMU+Video) |
-| 20s | 50.63% ± 6.34% | 50.16% ± 6.88% | 52.37% ± 7.17% | 51.56% ± 6.55% | 49.85% ± 7.42% (EEG+Gaze) |
-| 30s | 51.88% ± 5.27% | 53.90% ± 6.56% | 52.38% ± 7.53% | 51.56% ± 2.91% | 55.51% ± 6.90% (Gaze+IMU) |
-
-### T2 — Attended hemisphere decoding, LOSO (chance 50%)
-
-| Window | EEG | Gaze | IMU | Video | Best fusion |
-|---|---|---|---|---|---|
-| 5s | 68.50% ± 2.06% | 70.30% ± 2.75% | 68.78% ± 2.45% | 68.10% ± 3.41% | 70.25% ± 2.56% (EEG+Gaze+Video) |
-| 10s | 78.47% ± 2.58% | 78.44% ± 2.80% | 76.22% ± 3.41% | 77.29% ± 2.81% | 73.24% ± 3.26% (EEG+Gaze) |
-| 15s | 70.84% ± 3.25% | 70.23% ± 3.87% | 65.71% ± 5.05% | 67.45% ± 3.50% | 71.15% ± 4.03% (EEG+Gaze) |
-| 20s | 72.19% ± 6.37% | 69.26% ± 7.34% | 69.92% ± 6.32% | 71.88% ± 5.27% | 72.75% ± 4.57% (EEG+Video) |
-| 30s | 73.13% ± 10.73% | 75.49% ± 8.71% | 69.93% ± 7.62% | 68.75% ± 6.96% | 75.49% ± 7.56% (EEG+Gaze) |
-
-### T3 — Attended eccentricity decoding, LOSO (chance 50%)
-
-| Window | EEG | Gaze | IMU | Video | Best fusion |
-|---|---|---|---|---|---|
-| 5s | 59.24% ± 2.20% | 60.13% ± 2.91% | 59.58% ± 1.87% | 58.21% ± 1.36% | 60.57% ± 2.49% (Gaze+IMU) |
-| 10s | 53.22% ± 2.03% | 54.32% ± 3.42% | 53.96% ± 2.82% | 53.47% ± 2.69% | 60.70% ± 1.84% (Gaze+IMU) |
-| 15s | 61.41% ± 4.22% | 60.61% ± 4.08% | 61.03% ± 4.83% | 61.23% ± 5.21% | 63.13% ± 4.37% (Gaze+Video) |
-| 20s | 68.44% ± 4.23% | 66.13% ± 6.04% | 64.29% ± 7.57% | 66.25% ± 6.96% | 69.29% ± 4.88% (EEG+Gaze+IMU+Video) |
-| 30s | 67.19% ± 5.85% | 62.06% ± 7.12% | 64.59% ± 6.66% | 62.50% ± 7.71% | 65.86% ± 7.02% (EEG+Video) |
-
-Full per-mode results for all 15 modality combinations, all four single-modality checkpoints (5 folds for within-subject, 16 subjects for LOSO), and the SNR-stratified analysis are provided as JSON files under `results/`.
+| 5s | 43.64% ± 3.18% | 33.99% ± 8.05% | 37.07% ± 10.86% | 39.57% ± 12.71% | 54.41% ± 11.83% (EEG+Gaze+IMU+Video) |
+| 10s | 50.19% ± 6.98% | 34.95% ± 9.38% | 34.77% ± 9.46% | 43.56% ± 14.66% | 57.33% ± 10.37% (EEG+Gaze+Video) |
+| 15s | 52.40% ± 7.02% | 36.08% ± 9.09% | 38.48% ± 13.53% | 41.35% ± 13.65% | 59.59% ± 11.15% (EEG+IMU+Video) |
+| 20s | 55.31% ± 9.92% | 36.87% ± 8.98% | 32.16% ± 11.29% | 41.56% ± 17.61% | 61.29% ± 9.32% (EEG+IMU+Video) |
+| 30s | 61.88% ± 11.71% | 35.46% ± 9.44% | 35.46% ± 12.69% | 44.69% ± 14.52% | 67.45% ± 18.58% (EEG+Gaze+IMU+Video) |
 
 ---
 
@@ -123,50 +68,48 @@ Full per-mode results for all 15 modality combinations, all four single-modality
 ```
 MAESTRO/
 ├── scripts/
-│   ├── dataloader.py               # Preprocessing, sync, windowing, PyTorch Dataset, official-split loading, mode registry
-│   ├── model_classification.py     # Multi-encoder dilated conv network for T1 (4-class)
-│   ├── model_spatial.py            # Binary variant for T2/T3 (hemisphere, eccentricity)
-│   ├── train_aad.py                # T1 — single modality, either split_setting (within or loso)
-│   ├── train_hemisphere.py         # T2 — single modality, either split_setting
-│   ├── train_eccentricity.py       # T3 — single modality, either split_setting
-│   ├── late_fusion.py              # Combines independently-trained single-modality checkpoints via a learned softmax combiner — produces every multimodal result
-│   ├── analyze_snr.py              # SNR-stratified accuracy, reusing existing single-modality + late-fusion checkpoints (no retraining)
-│   └── dl_maestro.py               # Dataset download script with rate-limit handling and HF token auth
+│   ├── dataloader.py               # Preprocessing, sync, windowing, candidate construction, official-split loading, mode registry
+│   ├── model_classification.py     # Multi-encoder dilated conv network (4-class)
+│   ├── model_spatial.py            # Binary variant for the auxiliary spatial tasks
+│   ├── losses.py                   # Training objective (cross-entropy + auxiliary, contrastive, hinge, anti-collapse, adversarial terms)
+│   ├── evaluation.py               # Permutation battery: null, contribution, stratified nulls, diagnostics
+│   ├── train_aad.py                # Four-class attended-speaker training (within or loso)
+│   ├── train_hemisphere.py         # Auxiliary — hemisphere (LOSO)
+│   ├── train_eccentricity.py       # Auxiliary — eccentricity (LOSO)
+│   ├── analyze_snr.py              # SNR-stratified accuracy from saved checkpoints (no retraining)
+│   ├── collect_results.py          # Aggregate result JSONs
+│   ├── make_paper_tables.py        # Regenerate the paper's tables from results/
+│   ├── make_paper_figures.py       # Regenerate the paper's figures from results/
+│   └── dl_maestro.py               # Dataset download with rate-limit handling and HF token auth
 └── results/
-    ├── results_aad_within_w{5,10,15,20,30}_h{2.5,5,7.5,10,15}/     # T1 within-subject — checkpoints (5 folds × 4 modalities) + result JSONs, one folder per window size
-    ├── results_aad_loso_w{5,10,15,20,30}_h{...}/                  # T1 LOSO — checkpoints (16 subjects × 4 modalities) + result JSONs
-    ├── results_hemisphere_loso_w{5,10,15,20,30}_h{...}/           # T2 — checkpoints + result JSONs
-    ├── results_eccentricity_loso_w{5,10,15,20,30}_h{...}/         # T3 — checkpoints + result JSONs
-    ├── results_late_fusion/         # Late-fusion results for all 11 multi-modality combinations, per task/split/window
-    └── results_snr/                 # Output of analyze_snr.py — SNR-stratified accuracy (currently computed for T1 only)
+    ├── res_within_w{5,10,15,20,30}_h{2.5,5,7.5,10,15}_qmatch/   # Four-class within-subject — result JSONs, one folder per window
+    ├── res_loso_w{...}_qmatch/                                  # Four-class LOSO
+    ├── spat_{within,loso}_w{...}_qmatch/                        # Auxiliary hemisphere / eccentricity
+    ├── significance/                                           # Paired t-test outputs vs EEG-only
+    ├── snr/                                                     # SNR-stratified analysis
+    ├── paper_tables/  paper_figures/                           # Regenerated tables and figures
+    └── ablate_nohinge_*/                                       # Ablation: objective without the hinge terms
 ```
 
-Each `results_{task}_{split}_w{window}_h{hop}/` folder name encodes exactly the run that produced it (task, split protocol, window size, hop size), matching what `late_fusion.py` and `analyze_snr.py` expect via `--ckpt_dir`.
 
 ---
 
 ## Installation
 
 ```bash
-git clone https://github.com/NaimulHassan/MAESTRO
+git clone https://github.com/ASPIRE-OSU/MAESTRO
 cd MAESTRO
 pip install -r requirements.txt
 ```
-> **Note:** PyTorch must be installed separately to match your CUDA version. See [pytorch.org](https://pytorch.org/get-started/locally/) for the correct install command. Tested with Python 3.7.16, PyTorch ≥1.13, and CUDA 11.8.
+> **Note:** PyTorch must be installed separately to match your CUDA version. See [pytorch.org](https://pytorch.org/get-started/locally/) for the correct install command.
 
 ## Downloading the Dataset
 
-The dataset is publicly available on HuggingFace. Use the provided download script, which handles rate limiting automatically by downloading in batches with retries:
+The dataset is publicly available on HuggingFace. Use the provided download script, which handles rate limiting automatically:
 
 ```bash
 export HF_TOKEN=hf_your_token_here
 python scripts/dl_maestro.py --local_dir maestro-data
-```
-
-Or pass the token directly (not recommended for shared/committed code — prefer the `HF_TOKEN` environment variable so the token never ends up in shell history, scripts, or version control):
-
-```bash
-python scripts/dl_maestro.py --local_dir maestro-data --token hf_your_token_here
 ```
 
 To download specific subjects only:
@@ -175,7 +118,7 @@ To download specific subjects only:
 python scripts/dl_maestro.py --local_dir maestro-data --subjects 1 2 3
 ```
 
-The script downloads in three sequential phases — metadata, official splits, and root files (`metadata/*`, `splits/*`, `README.md`, `LICENSE`), per-subject modality data (EEG, gaze, IMU parquet files), and media (audio, video, timing) — with a short pause between batches to stay within HuggingFace's free-tier rate limits. If no token is provided (neither `--token` nor `HF_TOKEN`), the script prints a warning and proceeds anyway, which is fine for the public dataset but required for any private/gated access.
+If no token is provided (neither `--token` nor `HF_TOKEN`), the script prints a warning and proceeds anyway, which is fine for the public dataset but required for any private/gated access.
 
 ---
 
@@ -200,70 +143,43 @@ The dataset follows a partitioned Parquet layout:
 └── media/
     ├── audio/<trial_id>/speaker{N}_dev{D}_{L|R}_spkid{ID}.flac
     ├── video/subject=S01/eval_001.mp4
-    └── timing/subject=S01/trial=eval_001.json    # Unified sync timestamps (anchor_unix, end_unix, per-stream offsets)
+    └── timing/subject=S01/trial=eval_001.json    # Unified sync timestamps
 ```
 
-`within/fold_N.json` is a pure content-based split (every subject appears in both train and test, on disjoint trial content, verified zero-overlap across folds). `loso/fold_NN.json` is a pure subject-based split (the held-out subject's trials are the test set; no separate content holdout, since the same ~100 stimuli are shared across all subjects). All scripts read these files directly via `dataloader.load_official_splits()` as the authoritative source of train/test partitioning — splits are never reconstructed internally.
+All scripts read the split files directly via `dataloader.load_official_splits()` as the authoritative source of train/test partitioning — splits are never reconstructed internally.
 
 ---
 
 ## Usage
 
-All scripts take `--local_path` as the dataset root, `--split_setting` (`within` or `loso`), and `--window_sec`/`--hop_sec` to select the decision window (defaults to the dataset's native 30 s window if left unset). An optional `--cache_dir` caches preprocessed features so subsequent runs load instantly.
+All scripts take `--local_path` (dataset root), `--split_setting` (`within` or `loso`), and `--window_sec`/`--hop_sec` to select the decision window. `--cache_dir` caches preprocessed features; `--dataset_cache` additionally memoises the assembled dataset, worth setting when sweeping windows since the per-trial cache does not store audio envelopes.
 
-### Step 1 — Train each single modality
+### Training
 
-T1, T2, and T3 each have their own training script. Train the four single modalities (`eeg`, `gaze`, `imu`, `video`) separately — this is what the paper's reported results are built from:
+A single model is trained end-to-end per configuration. `--mode` accepts any of the 15 non-empty modality combinations directly:
 
 ```bash
-# T1 — within-subject, 30s window
+# EEG alone, within-subject, 30 s window
 python scripts/train_aad.py --local_path maestro-data --mode eeg --split_setting within --window_sec 30 --hop_sec 15
 
-# T1 — LOSO
-python scripts/train_aad.py --local_path maestro-data --mode eeg --split_setting loso --window_sec 30 --hop_sec 15
-
-# T2 — hemisphere (LOSO only)
-python scripts/train_hemisphere.py --local_path maestro-data --mode eeg --split_setting loso --window_sec 30 --hop_sec 15
-
-# T3 — eccentricity (LOSO only)
-python scripts/train_eccentricity.py --local_path maestro-data --mode eeg --split_setting loso --window_sec 30 --hop_sec 15
-```
-Repeat with `--mode gaze`, `--mode imu`, `--mode video`. Each run writes checkpoints and a result JSON to `--results` (defaults to `results_{task}` — pass a folder matching the naming convention above if you want it discoverable by `late_fusion.py`'s auto-detection).
-
-> **Note on multimodal `--mode` values:** `--mode` also accepts multi-modality combinations directly (e.g. `--mode eeg_gaze_imu_video`), which trains a single jointly-fused model end-to-end using `model_classification.py`'s built-in concatenation fusion. **This is a different code path from the paper's reported multimodal results.** Every multimodal number in the paper comes from Step 2 below (`late_fusion.py` combining independently-trained single-modality checkpoints), not from training a multi-modality mode directly.
-
-### Step 2 — Late fusion (produces every multimodal result)
-
-Requires the four single-modality checkpoints for a given task/split/window to already exist (from Step 1):
-
-```bash
-# One multi-modality combination
-python scripts/late_fusion.py --task aad --split_setting loso --mode eeg_gaze_imu_video \
-    --local_path maestro-data --cache_dir /cache --window_sec 30 --hop_sec 15 --combine learned
-
-# Sweep all 11 multi-modality combinations, plus fold in the 4 existing single-modality results
-python scripts/late_fusion.py --task aad --split_setting loso --mode all \
-    --local_path maestro-data --cache_dir /cache --window_sec 30 --hop_sec 15 \
-    --combine learned --skip_existing
+# Full four-modality model, LOSO, 10 s window
+python scripts/train_aad.py --local_path maestro-data --mode eeg_gaze_imu_video --split_setting loso --window_sec 10 --hop_sec 5
 ```
 
-`--task` accepts `aad`, `hemisphere`, or `eccentricity`. `--ckpt_dir` defaults to `results_{task}_{split_setting}_w{window_sec}_h{hop_sec}` (matching Step 1's default output folder) — pass it explicitly if you used a custom `--results` path in Step 1. `--skip_existing` lets an interrupted `--mode all` sweep resume without re-running modes that already finished.
+Each run writes a result JSON (accuracy, permutation null, contribution, and the diagnostic battery) to `--results`. Multimodal configurations are trained as one jointly-fused model with modality dropout — there is no separate combiner over frozen single-modality checkpoints.
 
 ### SNR-stratified analysis
 
-Reuses the already-trained single-modality and late-fusion checkpoints — no retraining required:
+Reuses the saved per-fold checkpoints — no retraining:
 
 ```bash
-python scripts/analyze_snr.py --task aad --split_setting loso --local_path maestro-data \
-    --cache_dir /cache --window_sec 30 --hop_sec 15 \
-    --late_fusion_dir results_late_fusion --results results_snr
+python scripts/analyze_snr.py --mode eeg --split_setting loso --local_path maestro-data \
+    --window_sec 30 --hop_sec 15 --model_root results/res --results results/snr
 ```
-
-Runs the 4 single modalities plus exactly one multimodal mode: the best-performing combination for that exact (task, split, window) auto-selected from your existing `--late_fusion_dir` output. Pass `--modes` explicitly to override this. Run once per window size (and per split) for a full sweep — see `results/results_snr/` for the naming convention this produces.
 
 ### Supported modes
 
-All 15 non-empty combinations of the four modalities are supported, in a canonical `eeg_gaze_imu_video`-style naming scheme. Three short legacy aliases are also accepted for backward compatibility.
+All 15 non-empty combinations of the four modalities, in canonical `eeg_gaze_imu_video`-style naming. Three short aliases are also accepted.
 
 | Mode | Input |
 |---|---|
@@ -276,37 +192,37 @@ All 15 non-empty combinations of the four modalities are supported, in a canonic
 
 ## Preprocessing
 
-All modalities are resampled to 64 Hz. Missing samples in gaze and IMU are handled per channel by dropping invalid samples before interpolation.
+All modalities are resampled to 64 Hz and z-scored per channel, per trial.
 
 | Modality | Pipeline |
 |---|---|
-| EEG | 60 Hz notch → bandpass 1–40 Hz (4th-order Butterworth, filtfilt) → bad-channel detection (flat: std < 1e-9; saturated: ≥10% of samples at the ADC clip; or outlier variance via a MAD-based threshold on first-difference variance relative to the other good channels) → mastoid-preferred reference (good mastoid channels if available, otherwise full-channel average) → spherical-spline interpolation of bad channels via MNE if installed (falls back to an average-reference with no interpolation otherwise) → per-channel z-score → downsample 500→64 Hz |
-| Audio | **Raw waveform RMS-equalized to the trial's shared target** (mean RMS across that trial's own 4 speakers, computed before enveloping — this equalizes attended-vs-competing loudness so the model can't decode attention from raw audio energy alone) → Hilbert envelope → low-pass 20 Hz (4th-order Butterworth) → downsample 16000→64 Hz → z-score |
-| Gaze | Per-channel NaN drop → linear interpolation to 64 Hz grid → low-pass 10 Hz (4th-order Butterworth) → z-score |
-| IMU | Per-channel NaN drop → linear interpolation to native sampling rate → resample to 64 Hz → low-pass 20 Hz (4th-order Butterworth) → z-score |
-| Video | Downsample frames to 160×90 → grayscale conversion → Farneback dense optical flow between consecutive frames → 4 statistics per frame pair (mean/std flow magnitude, mean horizontal/vertical flow) → resample native fps→64 Hz → z-score |
+| EEG | 60 Hz notch → bandpass 1–40 Hz (4th-order Butterworth, filtfilt) → bad-channel detection (flat: std < 1e-9; saturated: ≥10% of samples at the ADC clip; or outlier first-difference variance via a MAD threshold) → mastoid-preferred reference (falls back to full-channel average) → spherical-spline interpolation of bad channels via MNE if installed → per-channel z-score → downsample 500→64 Hz |
+| Audio | Per-device playback-timestamp alignment → Hilbert envelope → low-pass 20 Hz (4th-order Butterworth) → downsample 16000→64 Hz → per-trial z-score. Envelope extraction is linear and the z-score is affine-invariant, so a level difference between talkers is removed exactly; the residual **shape** difference between attended and competing envelopes is removed by candidate construction (below). |
+| Gaze | Per-channel NaN drop → linear interpolation to 64 Hz grid → low-pass 10 Hz → z-score |
+| IMU | Per-channel NaN drop → linear interpolation to native rate → resample to 64 Hz → low-pass 20 Hz → z-score |
+| Video | Downsample frames to 160×90 → grayscale → Farneback dense optical flow → 4 statistics per frame pair (mean/std flow magnitude, mean horizontal/vertical flow) → resample native fps→64 Hz → z-score |
 
-Synchronisation uses the unified timing JSON (`media/timing/`): EEG filtering runs on the full unmasked trial recording before windowing (so filter edge transients fall outside the analysis window), with all streams subsequently aligned to a shared anchor/end timestamp per trial. Each of the 4 speakers' audio is additionally aligned using its own per-device playback-start timestamp (`audio_device_t0`) rather than one shared reference, correcting for inter-device recording lag before the RMS target is computed.
+**Candidate construction.** Within each decision window the four speaker envelopes are distribution-matched by histogram equalization (`quantile_match_candidates`): each envelope is sorted, the sorted values are averaged across the four, and each sample is replaced by the shared value at its own rank. All four then hold an identical multiset of values, so any statistic computed from amplitudes alone is equal by construction and only the temporal ordering distinguishes them. The four envelopes are also assigned to slots in a random order per window, so a slot's position carries no information about the label.
+
+Synchronisation uses the unified timing JSON (`media/timing/`): EEG filtering runs on the full unmasked trial recording before windowing, so filter edge transients fall outside the analysis window; all streams are then aligned to a shared anchor/end timestamp per trial, and each speaker's audio is additionally aligned by its own per-device playback-start timestamp.
 
 ---
 
-## Baseline Models
+## Baseline Model
 
-A multi-encoder causal dilated convolutional network (`model_classification.py` for T1, `model_spatial.py` for T2/T3 — identical encoder design, binary output). Each active modality is processed by a dedicated encoder and projected to a shared embedding width.
+A multi-encoder dilated convolutional network (`model_classification.py`), based on Accou et al. Each active modality is processed by a dedicated 5-layer encoder (kernel 3, dilations 2⁰…2⁴, receptive field 63 samples ≈ 0.98 s) into a 16-dimensional embedding.
 
-| Encoder | Layers |
+| Encoder | Detail |
 |---|---|
-| EEG | 7 + 1×1 spatial conv |
-| Audio | 7 (shared weights) |
-| Gaze | 6 |
-| IMU | 6 |
-| Video | 4 |
+| EEG | 5 layers + a 1×1 spatial convolution (8 filters) mixing the 32 channels |
+| Audio | 5 layers, weights shared across the four envelope streams |
+| Gaze / IMU / Video | 5 layers each |
 
-**Two distinct ways multi-modality inputs are combined, depending on how the model is invoked:**
-- **Single-modality mode** (`--mode eeg`, etc.): the one active modality's embedding is compared directly against the audio embedding via cosine similarity. This is what every checkpoint under `results/` actually is, and what the paper's four single-modality columns report.
-- **Multi-modality `--mode`, trained directly**: the model concatenates all active modalities' projected embeddings and passes them through a shared `Linear + ReLU` fusion layer before comparing against audio — a jointly-trained, early-fusion alternative. **Not used to produce the paper's reported multimodal numbers** (see the note in [Usage](#usage)); those come exclusively from `late_fusion.py` combining frozen single-modality checkpoints via a separate, later-stage learned combiner.
+Convolutions are **centered** (not causal), GroupNorm follows every convolution, and the final layer is linear so embeddings may be negative.
 
-All encoders use a uniform 16-dimensional embedding width. Training: Adam lr=1e⁻⁴, label smoothing 0.1, gradient clipping 1.0, early stopping patience 10. Each cross-validation fold is seeded independently (including a mode-dependent offset) so different modality combinations sharing a fold never receive identical model initialization.
+**Two scores are combined.** The EEG embedding is compared with each speaker envelope by **time-centered Pearson correlation**, giving one score per slot; centering ensures a time-constant embedding scores zero against every candidate, so the collapsed solution is pinned at chance. Separately, every modality embedding is pooled over time and passed to a classifier over the four speaker positions with no audio input. The two scores are summed and the highest-scoring slot is the prediction.
+
+**Training.** AdamW (lr 1e⁻³, weight decay 1e⁻⁴), gradient clipping 1.0, label smoothing 0.1, batches of 32 windows drawn from one participant at a time. Modalities are fused in a single end-to-end model with modality dropout (p=0.3, never all at once, disabled at evaluation). The objective adds five terms to the cross-entropy — per-modality auxiliary, within-participant contrastive, permutation/zeros hinges, anti-collapse, and an audio-only adversary behind a gradient-reversal layer (see `losses.py`). Checkpoints are selected on the validation contribution. The learning rate is halved after five epochs without improvement (floor 1e⁻⁶); training stops after twelve without improvement, up to 50 epochs.
 
 ---
 
@@ -315,10 +231,10 @@ All encoders use a uniform 16-dimensional embedding width. Training: Adam lr=1e�
 If you use MAESTRO in your research, please cite:
 
 ```bibtex
-@article{hassan2025maestro,
+@article{hassan2026maestro,
   title   = {{MAESTRO}: A Multimodal Auditory-attention Egocentric Speech-TRacking Open Corpus},
-  author  = {Hassan, K M Naimul and Alavi, Seyed Ali and Williamson, Donald},
-  journal = {TBD},
+  author  = {Hassan, K M Naimul and Alavi, Ali and Williamson, Donald S.},
+  journal = {IEEE Transactions on Audio, Speech, and Language Processing},
   year    = {2026}
 }
 ```
@@ -331,61 +247,5 @@ If you use MAESTRO in your research, please cite:
 
 `SPDX-License-Identifier: CC-BY-NC-SA-4.0`
 
-This code and dataset are released under the [Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License (CC BY-NC-SA 4.0)](https://creativecommons.org/licenses/by-nc-sa/4.0/). You are free to share and adapt the material for non-commercial purposes, provided you give appropriate credit and distribute any derivative works under the same license.
+Released under the [Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License](https://creativecommons.org/licenses/by-nc-sa/4.0/).
 
----
-
-## What changed on this branch
-
-Six defects, ranked by their measured effect on the *contribution* — the gap
-between real accuracy and accuracy under a permutation of the physiological
-recording, which is the fraction of the number actually attributable to the
-recording.
-
-| # | Defect | Fix | Effect on contribution |
-|---|---|---|---|
-| 1 | **Candidate set acoustically confounded.** The attended talker differs from its competitors in envelope shape, which no amplitude normalisation removes because it is affine-invariant. Audio-only probe: 0.5597 against 0.25 chance. | `quantile_match_candidates` forces all K candidates onto an identical value distribution, so every statistic computed from the value multiset is equal by construction and only the temporal ordering differs. `build_shifted_candidates` offers same-talker temporal negatives, for which the audio-only accuracy is exactly 1/K. | +0.169 → +0.194, and moves the null to chance |
-| 2 | **Scoring function admits a degenerate optimum.** `mean_t[normalize(b) * normalize(a_k)]` followed by a linear layer reduces, for a time-constant `b`, to a linear classifier on the audio alone. | `CouplingHead` centres both signals over time before correlating, so a time-constant embedding scores exactly zero against every candidate and accuracy is pinned at chance. The degenerate solution is unreachable, not merely penalised. | +0.000 → +0.011; also a precondition for fix 4 |
-| 3 | **Encoder badly conditioned.** Receptive field 3⁷ = 2187 samples (34.2 s) against a 640-sample window, so ~85 % of what the deepest layer convolved was padding; no normalisation; a rectifier on the final layer, which confines embeddings to the non-negative orthant where cosine similarity is near 1 by construction; causal direction, though the response follows the stimulus by 100–300 ms. | Dilations `2^i` over 5 layers (RF 63 = 0.98 s), GroupNorm after every convolution, no final activation, centred receptive field. | **+0.000 on its own** |
-| 4 | **Nothing in the objective rewarded using the recording.** Cross-entropy on the four-way decision is a function of the scores only, so the degenerate solution of #2 cost nothing. | `losses.py` adds a contrastive term (which a collapsed encoder cannot minimise — it is pinned at `log B`), hinges requiring the real recording to outscore a permuted and a zero one, an anti-collapse penalty on the per-dimension temporal variance, and an audio-only adversary behind a gradient-reversal layer. | +0.011 → **+0.169** |
-| 5 | **Every modality given the same, wrong task.** Gaze, head IMU and scene video were pushed through the envelope-matching head, but none has a temporal relationship to a speech envelope. | `SpatialHead` predicts the attended loudspeaker and takes **no audio input**, so it cannot shortcut even in principle and its permutation null is exactly 1/K. Modality dropout and per-branch auxiliary losses stop the strongest branch absorbing the gradient. | 0.000 → +0.250 fused |
-| 6 | **No permutation control.** | `evaluation.py`; also position- and trial-stratified nulls, a zeros ablation, a decision-flip rate, a collapse measure, and a lag-band control that separates an evoked response from stimulus bleed. | makes the rest interpretable |
-| — | **Checkpoint selected on validation accuracy**, which is what the shortcut maximises. | Select on the contribution instead. Once the candidates are clean the two criteria agree to within 0.005, so this is a safeguard that is inactive on clean data. | +0.093 → +0.169 at fix 4 |
-
-Ranked: **objective ≫ candidate construction > scoring function ≫ encoder**, the
-last contributing nothing measurable on its own. The failure was not a modelling
-failure. Nothing in the objective asked the model to use the recording, the
-scoring function offered an exact alternative that did not require one, and the
-stimulus material made that alternative sufficient.
-
-### Verifying the fix
-
-`scripts/dataloader.py` runs an audio-only probe at startup and prints it before
-training. It fits a logistic classifier on eight affine-invariant shape
-statistics of the candidate envelopes, on content-disjoint folds, and takes the
-per-window argmax. A construction free of acoustic confounding must land near
-`1/K`:
-
-| Construction | K | Probe | Chance |
-|---|---|---|---|
-| `raw` (previous) | 4 | 0.5597 | 0.2500 |
-| `qmatch` (default) | 4 | 0.2600 | 0.2500 |
-| `shifted_qm` | 3 | 0.3571 | 0.3333 |
-| `shifted_qm` | 2 | **0.5002** | **0.5000** |
-
-### Running
-
-```bash
-# default: distribution-matched candidates, permutation battery reported
-python scripts/train_aad.py --local_path <dataset> --mode eeg     --split_setting within --window_sec 10 --hop_sec 5
-
-# reproduce the previous, confounded construction for comparison
-python scripts/train_aad.py --local_path <dataset> --mode eeg     --split_setting within --window_sec 10 --hop_sec 5 --candidates raw
-
-# same-talker temporal negatives: the only fully confound-free construction
-python scripts/train_aad.py --local_path <dataset> --mode eeg     --split_setting within --candidates shifted_qm --n_candidates 2
-```
-
-`--dataset_cache <dir>` memoises the assembled dataset, which is worth setting
-when sweeping windows: the per-trial cache does not store audio envelopes, so
-they are otherwise re-extracted from FLAC on every run.
