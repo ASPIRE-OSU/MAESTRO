@@ -93,3 +93,8 @@ python scripts/collect_results.py <results_root> --markdown RESULTS.md
 | EEG+IMU | loso | 0.3059 | 0.701 | 0.290 | +0.1498 | 0.062 |
 | EEG+Video | loso | 0.2756 | 0.696 | 0.324 | +0.1581 | 0.048 |
 | EEG+Gaze | loso | 0.2887 | 0.705 | 0.308 | +0.1377 | 0.048 |
+
+## Checkpoints
+
+Please visit : [Checkpoints](https://github.com/ASPIRE-OSU/MAESTRO/releases/tag/weights-v1)
+

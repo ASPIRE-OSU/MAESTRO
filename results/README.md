@@ -36,8 +36,6 @@ Both are deterministic: regenerated CSVs and `stats.json` are byte-identical to
 the committed ones, and the PNGs reproduce bit-for-bit under the same
 matplotlib version.
 
-## Not included
+## Checkpoints
 
-The per-fold model checkpoints (`fold_*.pt`, ~555 MB across all cells) are not
-committed; they are regenerable by rerunning the training scripts and are not
-needed for any table or figure.
+Please visit : [Checkpoints](https://github.com/ASPIRE-OSU/MAESTRO/releases/tag/weights-v1) 
