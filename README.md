@@ -226,6 +226,10 @@ Convolutions are **centered** (not causal), GroupNorm follows every convolution,
 
 ---
 
+## Checkpoints
+
+Please visit : [Checkpoints](https://github.com/ASPIRE-OSU/MAESTRO/releases/tag/weights-v1)
+
 ## Citation
 
 If you use MAESTRO in your research, please cite:
