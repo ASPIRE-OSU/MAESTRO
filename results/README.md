@@ -36,8 +36,15 @@ Both are deterministic: regenerated CSVs and `stats.json` are byte-identical to
 the committed ones, and the PNGs reproduce bit-for-bit under the same
 matplotlib version.
 
-## Not included
+## Model weights
 
 The per-fold model checkpoints (`fold_*.pt`, ~555 MB across all cells) are not
-committed; they are regenerable by rerunning the training scripts and are not
-needed for any table or figure.
+committed to the repository; they are published as release assets under
+[`weights-v1`](https://github.com/ASPIRE-OSU/MAESTRO/releases/tag/weights-v1),
+one archive per task and split, with SHA-256 manifests for both the archives
+and every individual checkpoint. Unpacked archives reproduce the directory
+layout above (`<results_dir>/fold_<fold>_<config>_<split>.pt`), so
+`scripts/analyze_snr.py --model_root` can point at them directly. Checkpoints
+were selected on validation contribution (accuracy minus permuted accuracy),
+not accuracy; see `scripts/train_aad.py`. They are also regenerable by
+rerunning the training scripts and are not needed for any table or figure.
