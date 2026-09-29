@@ -235,11 +235,14 @@ Please visit : [Checkpoints](https://github.com/ASPIRE-OSU/MAESTRO/releases/tag/
 If you use MAESTRO in your research, please cite:
 
 ```bibtex
-@article{hassan2026maestro,
-  title   = {{MAESTRO}: A Multimodal Auditory-attention Egocentric Speech-TRacking Open Corpus},
-  author  = {Hassan, K M Naimul and Alavi, Ali and Williamson, Donald S.},
-  journal = {IEEE Transactions on Audio, Speech, and Language Processing},
-  year    = {2026}
+@misc{hassan2026maestromultimodalauditoryattentionegocentric,
+      title={MAESTRO: a Multimodal Auditory-attention Egocentric Speech-TRacking Open corpus}, 
+      author={K M Naimul Hassan and Ali Alavi and Donald S. Williamson},
+      year={2026},
+      eprint={2609.31898},
+      archivePrefix={arXiv},
+      primaryClass={eess.AS},
+      url={https://arxiv.org/abs/2609.31898}, 
 }
 ```
 
